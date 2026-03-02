@@ -1,4 +1,4 @@
-import type { IAdapter, ExecResult, QueryResult, RawResult } from "./adapters/types.js";
+import type { ExecResult, IAdapter, QueryResult, RawResult } from "./adapters/types.js";
 
 // ── Helper types ────────────────────────────────────────────────────────────
 

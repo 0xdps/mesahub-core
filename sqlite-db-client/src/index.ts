@@ -1,27 +1,18 @@
 export { Database } from "./database.js";
 export type {
-  WhereClause,
-  FindOptions,
-  ColumnDef,
-  CreateTableOptions,
-  CreateIndexOptions,
-  OrderDirection,
+  ColumnDef, CreateIndexOptions, CreateTableOptions, FindOptions, OrderDirection, WhereClause
 } from "./database.js";
 
 export { HttpAdapter } from "./adapters/http.js";
 export type { HttpAdapterOptions } from "./adapters/http.js";
 export type {
-  IAdapter,
-  ColumnHeader,
-  QueryResult,
-  ExecResult,
-  RawResult,
+  ColumnHeader, ExecResult, IAdapter, QueryResult, RawResult
 } from "./adapters/types.js";
 
 // ── Convenience factory ──────────────────────────────────────────────────────
 
-import { Database } from "./database.js";
 import { HttpAdapter, type HttpAdapterOptions } from "./adapters/http.js";
+import { Database } from "./database.js";
 
 /**
  * Create a Database connected to a sqlite-db-hub service over HTTP.

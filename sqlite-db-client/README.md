@@ -15,17 +15,17 @@ npm install sqlite-db-client
 import { connect } from "sqlite-db-client";
 
 const db = connect({
-  url:   process.env.SQLITE_DB_HUB_URL,    // e.g. https://my-app.up.railway.app
-  token: process.env.SQLITE_DB_HUB_TOKEN,  // ADMIN_TOKEN set on the service
-  db:    "my-service",                     // database name
+  url: process.env.SQLITE_DB_HUB_URL, // e.g. https://my-app.up.railway.app
+  token: process.env.SQLITE_DB_HUB_TOKEN, // ADMIN_TOKEN set on the service
+  db: "my-service", // database name
 });
 
 // Create table
 await db.createTable("users", [
-  { name: "id",         type: "INTEGER", primaryKey: true, autoIncrement: true },
-  { name: "email",      type: "TEXT",    notNull: true, unique: true },
-  { name: "name",       type: "TEXT" },
-  { name: "created_at", type: "TEXT",    default: "(datetime('now'))" },
+  { name: "id", type: "INTEGER", primaryKey: true, autoIncrement: true },
+  { name: "email", type: "TEXT", notNull: true, unique: true },
+  { name: "name", type: "TEXT" },
+  { name: "created_at", type: "TEXT", default: "(datetime('now'))" },
 ]);
 
 // Create index
@@ -39,20 +39,26 @@ const { lastInsertRowid } = await db.insert("users", {
 
 // Bulk insert
 await db.insertMany("users", [
-  { email: "bob@example.com",   name: "Bob" },
+  { email: "bob@example.com", name: "Bob" },
   { email: "carol@example.com", name: "Carol" },
 ]);
 
 // Read — find all
-const users = await db.find<{ id: number; email: string; name: string }>("users");
+const users = await db.find<{ id: number; email: string; name: string }>(
+  "users"
+);
 
 // Read — filtered, paginated, ordered
-const page = await db.find("users", {}, {
-  orderBy: "created_at",
-  order:   "DESC",
-  limit:   10,
-  offset:  0,
-});
+const page = await db.find(
+  "users",
+  {},
+  {
+    orderBy: "created_at",
+    order: "DESC",
+    limit: 10,
+    offset: 0,
+  }
+);
 
 // Read — single row by arbitrary filter
 const alice = await db.findOne("users", { email: "alice@example.com" });
@@ -100,24 +106,28 @@ Returns a `Database` instance.
 #### `db.createTable(table, columns, options?)`
 
 ```ts
-await db.createTable("posts", [
-  { name: "id",    type: "INTEGER", primaryKey: true, autoIncrement: true },
-  { name: "title", type: "TEXT",    notNull: true },
-  { name: "body",  type: "TEXT" },
-], { ifNotExists: true }); // ifNotExists: true is the default
+await db.createTable(
+  "posts",
+  [
+    { name: "id", type: "INTEGER", primaryKey: true, autoIncrement: true },
+    { name: "title", type: "TEXT", notNull: true },
+    { name: "body", type: "TEXT" },
+  ],
+  { ifNotExists: true }
+); // ifNotExists: true is the default
 ```
 
 **`ColumnDef` fields:**
 
-| Field           | Type      | Description                                    |
-| --------------- | --------- | ---------------------------------------------- |
-| `name`          | `string`  | Column name                                    |
-| `type`          | `string`  | SQLite type: `INTEGER`, `TEXT`, `REAL`, `BLOB` |
-| `primaryKey`    | `boolean` | Mark as PRIMARY KEY                            |
-| `autoIncrement` | `boolean` | Add AUTOINCREMENT                              |
-| `notNull`       | `boolean` | Add NOT NULL constraint                        |
-| `unique`        | `boolean` | Add UNIQUE constraint                          |
-| `default`       | `string \| number` | DEFAULT value (raw SQL fragment)      |
+| Field           | Type               | Description                                    |
+| --------------- | ------------------ | ---------------------------------------------- |
+| `name`          | `string`           | Column name                                    |
+| `type`          | `string`           | SQLite type: `INTEGER`, `TEXT`, `REAL`, `BLOB` |
+| `primaryKey`    | `boolean`          | Mark as PRIMARY KEY                            |
+| `autoIncrement` | `boolean`          | Add AUTOINCREMENT                              |
+| `notNull`       | `boolean`          | Add NOT NULL constraint                        |
+| `unique`        | `boolean`          | Add UNIQUE constraint                          |
+| `default`       | `string \| number` | DEFAULT value (raw SQL fragment)               |
 
 #### `db.dropTable(table, ifExists?)`
 
@@ -145,7 +155,10 @@ await db.dropIndex("idx_posts_title");
 #### `db.insert(table, data)` → `ExecResult`
 
 ```ts
-const { lastInsertRowid } = await db.insert("posts", { title: "Hello", body: "World" });
+const { lastInsertRowid } = await db.insert("posts", {
+  title: "Hello",
+  body: "World",
+});
 ```
 
 #### `db.insertMany(table, rows)` → `ExecResult`
@@ -160,7 +173,11 @@ await db.insertMany("posts", [
 #### `db.update(table, data, where)` → `ExecResult`
 
 ```ts
-const { rowsAffected } = await db.update("posts", { title: "Updated" }, { id: 1 });
+const { rowsAffected } = await db.update(
+  "posts",
+  { title: "Updated" },
+  { id: 1 }
+);
 ```
 
 #### `db.delete(table, where)` → `ExecResult`
@@ -176,13 +193,17 @@ await db.delete("posts", { id: 1 });
 #### `db.find<T>(table, where?, options?)` → `T[]`
 
 ```ts
-const posts = await db.find<Post>("posts", { published: 1 }, {
-  columns:  ["id", "title"],
-  orderBy:  "created_at",
-  order:    "DESC",  // "ASC" | "DESC"
-  limit:    20,
-  offset:   0,
-});
+const posts = await db.find<Post>(
+  "posts",
+  { published: 1 },
+  {
+    columns: ["id", "title"],
+    orderBy: "created_at",
+    order: "DESC", // "ASC" | "DESC"
+    limit: 20,
+    offset: 0,
+  }
+);
 ```
 
 #### `db.findOne<T>(table, where?)` → `T | null`
@@ -194,15 +215,15 @@ const post = await db.findOne<Post>("posts", { id: 5 });
 #### `db.findById<T>(table, id, idColumn?)` → `T | null`
 
 ```ts
-const post = await db.findById<Post>("posts", 5);          // uses "id" column
+const post = await db.findById<Post>("posts", 5); // uses "id" column
 const item = await db.findById<Item>("items", "abc", "slug"); // custom PK column
 ```
 
 #### `db.count(table, where?)` → `number`
 
 ```ts
-const total    = await db.count("posts");
-const drafts   = await db.count("posts", { published: 0 });
+const total = await db.count("posts");
+const drafts = await db.count("posts", { published: 0 });
 ```
 
 #### `db.exists(table, where)` → `boolean`
