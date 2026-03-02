@@ -18,18 +18,9 @@ import { Database } from "./database.js";
  * Create a Database connected to a sqlite-hub service over HTTP.
  *
  * @example
- * // Using a per-DB service secret (recommended for services)
  * const db = connect({
  *   url:   process.env.SQLITE_HUB_URL,
- *   token: process.env.SQLITE_HUB_SERVICE_SECRET,
- *   db:    "my-service",
- * });
- *
- * @example
- * // Using the global admin token (dev / admin tooling)
- * const db = connect({
- *   url:   process.env.SQLITE_HUB_URL,
- *   token: process.env.SQLITE_HUB_ADMIN_TOKEN,
+ *   token: process.env.SQLITE_HUB_SERVICE_SECRET, // service_secret from admin Settings
  *   db:    "my-service",
  * });
  */

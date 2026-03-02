@@ -14,15 +14,11 @@ npm install sqlite-hub-client
 ```ts
 import { connect } from "sqlite-hub-client";
 
-// Using a per-DB service secret (recommended for services)
 const db = connect({
-  url: process.env.SQLITE_HUB_URL,           // e.g. https://my-app.up.railway.app
-  token: process.env.SQLITE_HUB_SERVICE_SECRET, // service_secret generated at DB creation
-  db: "my-service",                           // database name
+  url:   process.env.SQLITE_HUB_URL,            // e.g. https://my-app.up.railway.app
+  token: process.env.SQLITE_HUB_SERVICE_SECRET, // service_secret from admin Settings
+  db:    "my-service",
 });
-
-// Or use the global admin token (dev / admin tooling)
-// token: process.env.SQLITE_HUB_ADMIN_TOKEN
 
 // Create table
 await db.createTable("users", [
@@ -97,7 +93,7 @@ const result = await db.exec("PRAGMA table_info(users)");
 | Option    | Type     | Required | Description                                                                                     |
 | --------- | -------- | -------- | ----------------------------------------------------------------------------------------------- |
 | `url`     | `string` | ✅       | Base URL of your sqlite-hub deployment                                                          |
-| `token`   | `string` | ✅       | Per-DB `service_secret` (recommended) or global `ADMIN_TOKEN` — sent as `Authorization: Bearer` |
+| `token`   | `string` | ✅       | Per-DB `service_secret` — generate one in the admin dashboard under Settings → Service secret |
 | `db`      | `string` | ✅       | Name of the database to operate on                                                              |
 | `timeout` | `number` | ❌       | Request timeout in ms (default: `10000`)                                                        |
 
