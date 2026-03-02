@@ -1,21 +1,15 @@
 {
-  "name": "@outerbase/studio",
-  "version": "0.10.2",
-  "private": false,
+  "name": "file-db",
+  "version": "0.1.0",
+  "description": "Centralized SQLite storage service for internal Railway workloads",
+  "private": true,
   "scripts": {
     "dev": "next dev -p 3008",
-    "dev-https": "next dev --experimental-https",
     "start": "next start",
     "build": "next build",
-    "tsc": "tsc --noEmit --skipLibCheck",
-    "test": "jest",
-    "staged": "npm run typecheck && npm run lint && jest",
     "typecheck": "tsc --noEmit --skipLibCheck",
     "format": "prettier --check .",
-    "lint": "next lint",
-    "dialect": "node build-dialect.js",
-    "preview": "opennextjs-cloudflare build && opennextjs-cloudflare preview",
-    "deploy": "opennextjs-cloudflare build && opennextjs-cloudflare deploy"
+    "lint": "next lint"
   },
   "overrides": {
     "@libsql/client": "^0.5.3"
