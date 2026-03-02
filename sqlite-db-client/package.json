@@ -1,5 +1,5 @@
 {
-  "name": "sqlite-db-hub-client",
+  "name": "sqlite-hub-client",
   "version": "0.2.0",
   "description": "High-level SQLite client for sqlite-db-hub — HTTP adapter included, direct SQLite coming soon",
   "main": "dist/index.js",
