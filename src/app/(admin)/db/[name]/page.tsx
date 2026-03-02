@@ -21,7 +21,7 @@ export default function DbViewerPage({
   );
 
   return (
-    <div className="h-full flex-1 dark">
+    <div className="h-full flex-1">
       <Studio
         driver={driver}
         extensions={extensions}

@@ -4,6 +4,7 @@ import "./codemirror-override.css";
 import "./globals.css";
 
 import { DialogProvider } from "@/components/create-dialog";
+import { ThemeProvider } from "next-themes";
 
 export const metadata: Metadata = {
   title: "file-db",
@@ -18,8 +19,15 @@ export default async function RootLayout({
   return (
     <html lang="en" suppressHydrationWarning>
       <body>
-        {children}
-        <DialogProvider slot="default" />
+        <ThemeProvider
+          attribute="class"
+          defaultTheme="dark"
+          forcedTheme="dark"
+          disableTransitionOnChange
+        >
+          {children}
+          <DialogProvider slot="default" />
+        </ThemeProvider>
       </body>
     </html>
   );
