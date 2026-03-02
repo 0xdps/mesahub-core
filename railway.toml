@@ -5,3 +5,6 @@ builder = "dockerfile"
 startCommand = "node server.js"
 healthcheckPath = "/api/health"
 healthcheckTimeout = 60
+
+[networking]
+defaultInternalPort = 3000

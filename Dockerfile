@@ -17,8 +17,9 @@ FROM node:20-alpine AS runner
 WORKDIR /app
 
 ENV NODE_ENV=production
-ENV PORT=3000
 ENV HOSTNAME="0.0.0.0"
+# PORT is injected by Railway at runtime; default to 3000 for local Docker runs
+ENV PORT=3000
 
 # Pre-create the data directory (overridden by Railway volume at runtime)
 RUN mkdir -p /data
