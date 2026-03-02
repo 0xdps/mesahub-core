@@ -4,7 +4,11 @@ import type { IAdapter, RawResult } from "./types.js";
 export interface HttpAdapterOptions {
   /** Base URL of the sqlite-hub deployment, e.g. https://my-app.up.railway.app */
   url: string;
-  /** ADMIN_TOKEN configured on the sqlite-hub service */
+  /**
+   * Bearer token for this database.
+   * Use the per-DB `service_secret` (recommended for services) or the
+   * global `ADMIN_TOKEN` (for admin-level access or dev environments).
+   */
   token: string;
   /** Name of the database to operate on */
   db: string;

@@ -63,19 +63,19 @@ export default function DashboardPage() {
       ) : (
         <div className="rounded-lg border border-neutral-800 overflow-hidden">
           <table className="w-full text-sm">
-            <thead className="bg-neutral-900 text-neutral-400 text-xs uppercase">
+            <thead className="bg-neutral-800 text-neutral-400 text-xs uppercase">
               <tr>
                 <th className="text-left px-4 py-3">Name</th>
                 <th className="text-left px-4 py-3">Owner</th>
                 <th className="text-left px-4 py-3">Size</th>
                 <th className="text-left px-4 py-3">Created</th>
                 <th className="text-left px-4 py-3">Status</th>
-                <th className="px-4 py-3" />
+                <th className="text-right px-4 py-3">Actions</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-neutral-800">
               {dbs.map((db) => (
-                <tr key={db.id} className="hover:bg-neutral-900 transition-colors">
+                <tr key={db.id} className="hover:bg-neutral-800/40 transition-colors">
                   <td className="px-4 py-3 font-mono text-white">{db.name}</td>
                   <td className="px-4 py-3 text-neutral-300">{db.owner}</td>
                   <td className="px-4 py-3 text-neutral-400">{formatBytes(db.size_bytes)}</td>
@@ -94,14 +94,20 @@ export default function DashboardPage() {
                     </span>
                   </td>
                   <td className="px-4 py-3 text-right">
-                    {db.status === "active" && (
+                    <div className="flex items-center justify-end gap-3">
+                      <Link
+                        href={`/db/${db.name}/settings`}
+                        className="text-xs text-neutral-400 hover:text-white"
+                      >
+                        Settings
+                      </Link>
                       <Link
                         href={`/db/${db.name}`}
                         className="text-xs text-blue-400 hover:text-blue-300"
                       >
                         Browse →
                       </Link>
-                    )}
+                    </div>
                   </td>
                 </tr>
               ))}

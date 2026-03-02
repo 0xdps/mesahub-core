@@ -18,13 +18,6 @@ function timingSafeMatch(a: string, b: string): boolean {
   return bufA.length === bufB.length && timingSafeEqual(bufA, bufB);
 }
 
-export function isAdminToken(req: Request): boolean {
-  const token = extractBearer(req);
-  if (!token) return false;
-  const adminToken = process.env.ADMIN_TOKEN ?? "";
-  return !!adminToken && timingSafeMatch(token, adminToken);
-}
-
 function isPrivateIP(ip: string): boolean {
   // Strip IPv6-mapped IPv4 prefix (::ffff:x.x.x.x)
   const addr = ip.replace(/^::ffff:/, "").trim();
@@ -54,18 +47,23 @@ export function isInternalRequest(req: Request): boolean {
  *
  * Rules:
  *  1. Trusted admin-session header (set by middleware after cookie verification) → allowed
- *  2. ADMIN_TOKEN bearer  → always allowed
- *  3. DB has service_secret, bearer matches → allowed (scoped to this DB)
- *  4. DB has service_secret, wrong/no bearer  → 401 Unauthorized
- *  5. DB has no service_secret, internal IP   → allowed
- *  6. DB has no service_secret, public IP     → 403 Forbidden
+ *  2. DB has service_secret, bearer matches → allowed (scoped to this DB)
+ *  3. DB has service_secret, wrong/no bearer → 401 Unauthorized
+ *  4. DB has no service_secret, internal IP  → allowed
+ *  5. DB has no service_secret, public IP    → 403 Forbidden
+ *
+ * NOTE: ADMIN_TOKEN is intentionally NOT accepted here. It is only valid at
+ * the /api/auth/login endpoint to obtain a session cookie. All programmatic
+ * access must use a per-DB service_secret.
  */
 export function authorizeDbRequest(req: Request, record: DbRecord): NextResponse | null {
   // Rule 1: admin browser session (header stamped by middleware, forgery-stripped)
   if (req.headers.get(ADMIN_SESSION_HEADER) === "1") return null;
 
-  // Rule 2: ADMIN_TOKEN always wins
-  if (isAdminToken(req)) return null;
+  // Inactive DBs: reject all non-admin access
+  if (record.status !== "active") {
+    return NextResponse.json({ error: "This database is inactive" }, { status: 503 });
+  }
 
   const bearer = extractBearer(req);
 
@@ -78,7 +76,7 @@ export function authorizeDbRequest(req: Request, record: DbRecord): NextResponse
   // No service_secret: rules 4 & 5
   if (isInternalRequest(req)) return null;
   return NextResponse.json(
-    { error: "Forbidden: this database requires an internal network request or an ADMIN_TOKEN" },
+    { error: "Forbidden: this database has no service_secret — access requires an internal network or a service_secret" },
     { status: 403 }
   );
 }

@@ -12,15 +12,51 @@ class FilebDbQueryable implements QueryableBaseDriver {
     });
 
     if (!res.ok) {
-      const text = await res.text();
-      throw new Error(text || `Query failed: ${res.status}`);
+      const data = await res.json().catch(() => null);
+      throw new Error(data?.error || `Query failed: ${res.status}`);
     }
 
     return res.json() as Promise<DatabaseResultSet>;
   }
 
+  async exec(stmt: string): Promise<DatabaseResultSet> {
+    const res = await fetch(`/api/db/${encodeURIComponent(this.dbName)}/exec`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ sql: stmt }),
+    });
+
+    if (!res.ok) {
+      const data = await res.json().catch(() => null);
+      throw new Error(data?.error || `Exec failed: ${res.status}`);
+    }
+
+    const data = await res.json();
+
+    // Exec may return a SELECT result (reader path) or a write result
+    if (Array.isArray(data.rows)) {
+      return data as DatabaseResultSet;
+    }
+
+    return {
+      rows: [],
+      headers: [],
+      stat: {
+        rowsAffected: data.rowsAffected ?? 0,
+        rowsRead: null,
+        rowsWritten: data.rowsAffected ?? null,
+        queryDurationMs: null,
+      },
+      lastInsertRowid: data.lastInsertRowid ?? undefined,
+    };
+  }
+
   async transaction(stmts: string[]): Promise<DatabaseResultSet[]> {
-    return Promise.all(stmts.map((s) => this.query(s)));
+    const results: DatabaseResultSet[] = [];
+    for (const s of stmts) {
+      results.push(await this.exec(s));
+    }
+    return results;
   }
 }
 

@@ -12,7 +12,7 @@ export async function POST(req: Request, { params }: Params) {
   const { name } = await params;
 
   const record = getDatabase(name);
-  if (!record || record.status !== "active") {
+  if (!record) {
     return NextResponse.json({ error: "Database not found" }, { status: 404 });
   }
 
@@ -26,13 +26,22 @@ export async function POST(req: Request, { params }: Params) {
 
   const { sql, bindings = [] } = body as { sql: string; bindings?: unknown[] };
 
+  // Block writes on inactive DBs regardless of RETURNING clause
+  const WRITE_PATTERN = /^\s*(INSERT|UPDATE|DELETE|DROP|ALTER|CREATE|ATTACH|DETACH|PRAGMA\s+\w+\s*=)/i;
+  if (record.status !== "active" && WRITE_PATTERN.test(sql)) {
+    return NextResponse.json(
+      { error: "Database is inactive — writes are not allowed" },
+      { status: 403 }
+    );
+  }
+
   const db = getDbConnection(name);
 
   try {
     const stmt = db.prepare(sql);
 
     if (stmt.reader) {
-      // SELECT — return rows + headers
+      // SELECT or INSERT/UPDATE ... RETURNING — return rows + headers
       const columns = stmt.columns();
       const headers: DatabaseHeader[] = columns.map((c) => ({
         name: c.name,
@@ -43,7 +52,7 @@ export async function POST(req: Request, { params }: Params) {
       const rows = stmt.all(...bindings) as Record<string, unknown>[];
       return NextResponse.json({ headers, rows, rowsRead: rows.length });
     } else {
-      // INSERT / UPDATE / DELETE / CREATE / DROP / ALTER etc.
+      // INSERT / UPDATE / DELETE / CREATE / DROP / ALTER etc. (no RETURNING)
       const info = stmt.run(...bindings);
       return NextResponse.json({
         rowsAffected: info.changes,

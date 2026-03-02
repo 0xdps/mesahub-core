@@ -51,17 +51,19 @@ let _stmts: {
   getBySecret: Database.Statement;
   insert: Database.Statement;
   softDelete: Database.Statement;
+  updateSecret: Database.Statement;
 } | null = null;
 
 function stmts() {
   if (_stmts) return _stmts;
   const db = getRegistry();
   _stmts = {
-    list:        db.prepare("SELECT * FROM databases ORDER BY created_at DESC"),
-    get:         db.prepare("SELECT * FROM databases WHERE name = ?"),
-    getBySecret: db.prepare("SELECT * FROM databases WHERE service_secret = ? AND status = 'active'"),
-    insert:      db.prepare("INSERT INTO databases (name, owner, description, service_secret) VALUES (?, ?, ?, ?)"),
-    softDelete:  db.prepare("UPDATE databases SET status = 'deleted' WHERE name = ?"),
+    list:         db.prepare("SELECT * FROM databases ORDER BY created_at DESC"),
+    get:          db.prepare("SELECT * FROM databases WHERE name = ?"),
+    getBySecret:  db.prepare("SELECT * FROM databases WHERE service_secret = ? AND status = 'active'"),
+    insert:       db.prepare("INSERT INTO databases (name, owner, description, service_secret) VALUES (?, ?, ?, ?)"),
+    softDelete:   db.prepare("UPDATE databases SET status = 'deleted' WHERE name = ?"),
+    updateSecret: db.prepare("UPDATE databases SET service_secret = ? WHERE name = ?"),
   };
   return _stmts;
 }
@@ -85,4 +87,12 @@ export function insertDatabase(name: string, owner: string, description?: string
 
 export function softDeleteDatabase(name: string): void {
   stmts().softDelete.run(name);
+}
+
+export function updateServiceSecret(name: string, secret: string | null): void {
+  stmts().updateSecret.run(secret, name);
+}
+
+export function setDatabaseStatus(name: string, status: "active" | "inactive"): void {
+  getRegistry().prepare("UPDATE databases SET status = ? WHERE name = ?").run(status, name);
 }

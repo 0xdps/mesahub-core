@@ -41,17 +41,7 @@ export async function middleware(req: NextRequest) {
     return NextResponse.next({ request: { headers: forwarded } });
   }
 
-  // All other routes: require ADMIN_TOKEN bearer or a valid browser session
-
-  const authHeader = forwarded.get("authorization");
-  if (authHeader?.startsWith("Bearer ")) {
-    const provided = authHeader.slice(7);
-    const adminToken = process.env.ADMIN_TOKEN ?? "";
-    if (adminToken && provided === adminToken) {
-      return NextResponse.next({ request: { headers: forwarded } });
-    }
-    return NextResponse.json({ error: "Invalid token" }, { status: 401 });
-  }
+  // All other routes: require a valid browser session (session cookie only)
 
   // Browser: check session cookie
   const res = NextResponse.next({ request: { headers: forwarded } });

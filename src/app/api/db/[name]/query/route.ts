@@ -16,7 +16,7 @@ export async function POST(req: Request, { params }: Params) {
   const { name } = await params;
 
   const record = getDatabase(name);
-  if (!record || record.status !== "active") {
+  if (!record) {
     return NextResponse.json({ error: "Database not found" }, { status: 404 });
   }
 

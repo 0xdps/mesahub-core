@@ -44,13 +44,13 @@ The UI is built on top of **Outerbase Studio** (open-source, AGPL-3.0) — its c
 
 ### 5.1 Infrastructure
 
-| Concern   | Approach                                    |
-|-----------|---------------------------------------------|
-| Hosting   | Railway — single service                    |
-| Storage   | Single persistent volume mounted at `/data` |
-| Backup    | Railway volume snapshots (daily + weekly)   |
-| Scaling   | Single instance only                        |
-| Runtime   | Single Next.js process — no sidecars        |
+| Concern | Approach                                    |
+| ------- | ------------------------------------------- |
+| Hosting | Railway — single service                    |
+| Storage | Single persistent volume mounted at `/data` |
+| Backup  | Railway volume snapshots (daily + weekly)   |
+| Scaling | Single instance only                        |
+| Runtime | Single Next.js process — no sidecars        |
 
 ### 5.2 Volume Layout
 
@@ -103,7 +103,7 @@ CREATE TABLE databases (
 A minimal HTTP API for managing the registry. Protected by `ADMIN_TOKEN`.
 
 | Method | Path      | Description                                |
-|--------|-----------|--------------------------------------------|
+| ------ | --------- | ------------------------------------------ |
 | GET    | /health   | Liveness check                             |
 | GET    | /metrics  | Volume usage summary (total, per-DB sizes) |
 | GET    | /db       | List all registered databases + file stats |
@@ -112,6 +112,7 @@ A minimal HTTP API for managing the registry. Protected by `ADMIN_TOKEN`.
 | DELETE | /db/:name | Soft-delete a database (marks inactive)    |
 
 **`POST /db` behavior:**
+
 1. Validate `name` matches `^[a-z0-9_-]+$`
 2. Reject if disk usage exceeds `MAX_VOLUME_USAGE_PERCENT`
 3. Reject if name already exists in registry
@@ -122,10 +123,10 @@ A minimal HTTP API for managing the registry. Protected by `ADMIN_TOKEN`.
 
 Next.js `middleware.ts` runs on every request. Checks for a valid signed session cookie. Unauthenticated requests redirect to `/login`.
 
-| Route        | Description                                              |
-|--------------|----------------------------------------------------------|
-| `/login`     | Login form — validates `ADMIN_TOKEN`, sets session cookie |
-| `/api/auth/logout` | Clears session cookie                              |
+| Route              | Description                                               |
+| ------------------ | --------------------------------------------------------- |
+| `/login`           | Login form — validates `ADMIN_TOKEN`, sets session cookie |
+| `/api/auth/logout` | Clears session cookie                                     |
 
 ### 6.4 Admin UI (Next.js pages)
 
@@ -136,6 +137,7 @@ Next.js `middleware.ts` runs on every request. Checks for a valid signed session
 ### 6.5 DB Viewer (Outerbase Studio — forked)
 
 The [Outerbase Studio](https://github.com/outerbase/studio) open-source UI is forked as the base of this project. The following is removed from the fork:
+
 - All cloud/workspace/team pages (`(dark-only)`, `(outerbase)/w/`)
 - All non-SQLite drivers (Turso, Cloudflare D1, rqlite, etc.)
 - Telemetry module (`lib/tracking.ts`, `api/events/`)
@@ -147,12 +149,12 @@ A custom `FildbDriver` is added that implements the `QueryableBaseDriver` interf
 
 ## 7. Safety
 
-| Concern        | Mitigation                                                              |
-|----------------|-------------------------------------------------------------------------|
-| Path traversal | Name validated with regex; path always constructed as `/data/{name}.db` |
-| Disk exhaustion | Reject new DB creation when volume usage > `MAX_VOLUME_USAGE_PERCENT`  |
-| Accidental loss | Soft deletes only; no immediate file removal                           |
-| Unauthorized access | `ADMIN_TOKEN` required for all admin endpoints and dashboard       |
+| Concern             | Mitigation                                                              |
+| ------------------- | ----------------------------------------------------------------------- |
+| Path traversal      | Name validated with regex; path always constructed as `/data/{name}.db` |
+| Disk exhaustion     | Reject new DB creation when volume usage > `MAX_VOLUME_USAGE_PERCENT`   |
+| Accidental loss     | Soft deletes only; no immediate file removal                            |
+| Unauthorized access | `ADMIN_TOKEN` required for all admin endpoints and dashboard            |
 
 ---
 
@@ -176,16 +178,16 @@ MAX_VOLUME_USAGE_PERCENT=85
 
 ## 10. Tech Stack
 
-| Layer          | Choice                                          |
-|----------------|-------------------------------------------------|
-| Framework      | Next.js 15 (App Router)                         |
-| UI base        | Outerbase Studio (forked, stripped, AGPL-3.0)   |
-| DB access      | better-sqlite3 (server-side only)               |
-| Custom driver  | `FildbDriver` — implements `QueryableBaseDriver` |
-| Auth           | Signed session cookie (Next.js middleware)      |
-| Styling        | Tailwind CSS (already in Outerbase Studio)      |
-| Deploy         | Railway (Dockerfile)                            |
-| Processes      | 1 — Next.js only                                |
+| Layer         | Choice                                           |
+| ------------- | ------------------------------------------------ |
+| Framework     | Next.js 15 (App Router)                          |
+| UI base       | Outerbase Studio (forked, stripped, AGPL-3.0)    |
+| DB access     | better-sqlite3 (server-side only)                |
+| Custom driver | `FildbDriver` — implements `QueryableBaseDriver` |
+| Auth          | Signed session cookie (Next.js middleware)       |
+| Styling       | Tailwind CSS (already in Outerbase Studio)       |
+| Deploy        | Railway (Dockerfile)                             |
+| Processes     | 1 — Next.js only                                 |
 
 ---
 
