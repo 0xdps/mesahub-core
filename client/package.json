@@ -1,0 +1,19 @@
+{
+  "name": "file-db-client",
+  "version": "0.1.0",
+  "description": "Lightweight client SDK for file-db — SQLite over HTTP",
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "files": ["dist"],
+  "scripts": {
+    "build": "tsc"
+  },
+  "keywords": ["sqlite", "file-db", "railway"],
+  "license": "MIT",
+  "dependencies": {
+    "@pingpong-js/fetch": "^1.0.2"
+  },
+  "devDependencies": {
+    "typescript": "^5"
+  }
+}
