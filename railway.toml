@@ -1,0 +1,24 @@
+[deploy]
+startCommand = "node server.js"
+healthcheckPath = "/api/health"
+healthcheckTimeout = 30
+
+[[variables]]
+name = "ADMIN_TOKEN"
+description = "Token used to authenticate to the dashboard and API"
+required = true
+
+[[variables]]
+name = "SESSION_SECRET"
+description = "Secret for signing session cookies — must be at least 32 characters"
+required = true
+
+[[variables]]
+name = "DATA_PATH"
+description = "Directory where SQLite files are stored (must match your volume mount)"
+default = "/data"
+
+[[variables]]
+name = "MAX_VOLUME_USAGE_PERCENT"
+description = "Block new DB creation above this disk usage % (default 85)"
+default = "85"
