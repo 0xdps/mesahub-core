@@ -1,5 +1,5 @@
 {
-  "name": "sqlite-hub",
+  "name": "sqlite-db-hub",
   "version": "0.1.0",
   "description": "Centralized SQLite storage service for internal Railway workloads",
   "private": true,
