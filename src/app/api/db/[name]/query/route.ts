@@ -1,8 +1,7 @@
 import type { DatabaseHeader, DatabaseResultSet } from "@/drivers/base-driver";
 import { authorizeDbRequest } from "@/lib/auth";
-import { getDbPath } from "@/lib/fs";
+import { getReadonlyDbConnection } from "@/lib/db-pool";
 import { getDatabase } from "@/lib/registry";
-import Database from "better-sqlite3";
 import { NextResponse } from "next/server";
 
 // Only allow read-only statements
@@ -38,8 +37,7 @@ export async function POST(req: Request, { params }: Params) {
     );
   }
 
-  const dbPath = getDbPath(name);
-  const db = new Database(dbPath, { readonly: true, fileMustExist: true });
+  const db = getReadonlyDbConnection(name);
 
   try {
     const startTime = Date.now();
@@ -76,7 +74,5 @@ export async function POST(req: Request, { params }: Params) {
       { error: (err as Error).message },
       { status: 400 }
     );
-  } finally {
-    db.close();
   }
 }

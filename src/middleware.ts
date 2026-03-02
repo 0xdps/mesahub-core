@@ -7,36 +7,54 @@ const PUBLIC_PREFIXES = ["/login", "/api/health", "/api/auth"];
 // These routes enforce their own per-DB auth (service secret / internal IP)
 const DB_SCOPED_PATTERN = /^\/api\/db\/[^/]+(\/exec|\/query)$/;
 
+// Trusted internal header stamped by middleware after session verification.
+// Stripped from all incoming requests to prevent external forgery.
+export const ADMIN_SESSION_HEADER = "x-sqlite-hub-admin";
+
 export async function middleware(req: NextRequest) {
   const { pathname } = req.nextUrl;
+
+  // Strip any externally supplied admin-session header to prevent forgery
+  const forwarded = new Headers(req.headers);
+  forwarded.delete(ADMIN_SESSION_HEADER);
 
   const isPublic = PUBLIC_PREFIXES.some((prefix) =>
     pathname.startsWith(prefix)
   );
 
   if (isPublic) {
-    return NextResponse.next();
+    return NextResponse.next({ request: { headers: forwarded } });
   }
 
-  // DB-scoped routes: let the route handler verify auth (service secret / internal IP / admin token)
+  // DB-scoped routes: if session is valid, stamp the trusted header so route
+  // handlers know this is an authenticated admin browser request.
+  // Skip the session crypto entirely when a Bearer token is present — the
+  // route handler will validate it directly.
   if (DB_SCOPED_PATTERN.test(pathname)) {
-    return NextResponse.next();
+    if (!forwarded.has("authorization")) {
+      const tempRes = NextResponse.next();
+      const session = await getIronSession<SessionData>(req, tempRes, sessionOptions);
+      if (session.isLoggedIn) {
+        forwarded.set(ADMIN_SESSION_HEADER, "1");
+      }
+    }
+    return NextResponse.next({ request: { headers: forwarded } });
   }
 
   // All other routes: require ADMIN_TOKEN bearer or a valid browser session
 
-  const authHeader = req.headers.get("authorization");
+  const authHeader = forwarded.get("authorization");
   if (authHeader?.startsWith("Bearer ")) {
     const provided = authHeader.slice(7);
     const adminToken = process.env.ADMIN_TOKEN ?? "";
     if (adminToken && provided === adminToken) {
-      return NextResponse.next();
+      return NextResponse.next({ request: { headers: forwarded } });
     }
     return NextResponse.json({ error: "Invalid token" }, { status: 401 });
   }
 
   // Browser: check session cookie
-  const res = NextResponse.next();
+  const res = NextResponse.next({ request: { headers: forwarded } });
   const session = await getIronSession<SessionData>(req, res, sessionOptions);
 
   if (!session.isLoggedIn) {

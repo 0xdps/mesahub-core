@@ -1,4 +1,5 @@
 import Database from "better-sqlite3";
+import fs from "fs";
 import path from "path";
 
 const DATA_PATH = process.env.DATA_PATH ?? "/data";
@@ -9,6 +10,7 @@ export function getRegistry(): Database.Database {
   if (_registry) return _registry;
 
   const dbPath = path.join(DATA_PATH, "registry.db");
+  fs.mkdirSync(DATA_PATH, { recursive: true });
   _registry = new Database(dbPath);
   _registry.pragma("journal_mode = WAL");
   _registry.exec(`
@@ -42,24 +44,45 @@ export interface DbRecord {
   status: string;
 }
 
+// Cached prepared statements — created once, reused across requests
+let _stmts: {
+  list: Database.Statement;
+  get: Database.Statement;
+  getBySecret: Database.Statement;
+  insert: Database.Statement;
+  softDelete: Database.Statement;
+} | null = null;
+
+function stmts() {
+  if (_stmts) return _stmts;
+  const db = getRegistry();
+  _stmts = {
+    list:        db.prepare("SELECT * FROM databases ORDER BY created_at DESC"),
+    get:         db.prepare("SELECT * FROM databases WHERE name = ?"),
+    getBySecret: db.prepare("SELECT * FROM databases WHERE service_secret = ? AND status = 'active'"),
+    insert:      db.prepare("INSERT INTO databases (name, owner, description, service_secret) VALUES (?, ?, ?, ?)"),
+    softDelete:  db.prepare("UPDATE databases SET status = 'deleted' WHERE name = ?"),
+  };
+  return _stmts;
+}
+
 export function listDatabases(): DbRecord[] {
-  return getRegistry().prepare("SELECT * FROM databases ORDER BY created_at DESC").all() as DbRecord[];
+  return stmts().list.all() as DbRecord[];
 }
 
 export function getDatabase(name: string): DbRecord | null {
-  return (getRegistry().prepare("SELECT * FROM databases WHERE name = ?").get(name) as DbRecord) ?? null;
+  return (stmts().get.get(name) as DbRecord) ?? null;
 }
 
 export function getDbByServiceSecret(secret: string): DbRecord | null {
-  return (getRegistry().prepare("SELECT * FROM databases WHERE service_secret = ? AND status = 'active'").get(secret) as DbRecord) ?? null;
+  return (stmts().getBySecret.get(secret) as DbRecord) ?? null;
 }
 
 export function insertDatabase(name: string, owner: string, description?: string, serviceSecret?: string): DbRecord {
-  const db = getRegistry();
-  db.prepare("INSERT INTO databases (name, owner, description, service_secret) VALUES (?, ?, ?, ?)").run(name, owner, description ?? null, serviceSecret ?? null);
+  stmts().insert.run(name, owner, description ?? null, serviceSecret ?? null);
   return getDatabase(name)!;
 }
 
 export function softDeleteDatabase(name: string): void {
-  getRegistry().prepare("UPDATE databases SET status = 'deleted' WHERE name = ?").run(name);
+  stmts().softDelete.run(name);
 }

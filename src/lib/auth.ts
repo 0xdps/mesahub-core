@@ -2,6 +2,9 @@ import { timingSafeEqual } from "crypto";
 import { NextResponse } from "next/server";
 import type { DbRecord } from "./registry";
 
+// Must match the constant exported from middleware
+const ADMIN_SESSION_HEADER = "x-sqlite-hub-admin";
+
 function extractBearer(req: Request): string | null {
   const header = req.headers.get("authorization");
   if (!header?.startsWith("Bearer ")) return null;
@@ -50,14 +53,18 @@ export function isInternalRequest(req: Request): boolean {
  * Returns null if access is granted, or a NextResponse with 401/403 if denied.
  *
  * Rules:
- *  1. ADMIN_TOKEN bearer  → always allowed
- *  2. DB has service_secret, bearer matches → allowed (scoped to this DB)
- *  3. DB has service_secret, wrong/no bearer  → 401 Unauthorized
- *  4. DB has no service_secret, internal IP   → allowed
- *  5. DB has no service_secret, public IP     → 403 Forbidden
+ *  1. Trusted admin-session header (set by middleware after cookie verification) → allowed
+ *  2. ADMIN_TOKEN bearer  → always allowed
+ *  3. DB has service_secret, bearer matches → allowed (scoped to this DB)
+ *  4. DB has service_secret, wrong/no bearer  → 401 Unauthorized
+ *  5. DB has no service_secret, internal IP   → allowed
+ *  6. DB has no service_secret, public IP     → 403 Forbidden
  */
 export function authorizeDbRequest(req: Request, record: DbRecord): NextResponse | null {
-  // Rule 1: ADMIN_TOKEN always wins
+  // Rule 1: admin browser session (header stamped by middleware, forgery-stripped)
+  if (req.headers.get(ADMIN_SESSION_HEADER) === "1") return null;
+
+  // Rule 2: ADMIN_TOKEN always wins
   if (isAdminToken(req)) return null;
 
   const bearer = extractBearer(req);

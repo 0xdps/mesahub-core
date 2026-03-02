@@ -1,8 +1,7 @@
 import type { DatabaseHeader } from "@/drivers/base-driver";
 import { authorizeDbRequest } from "@/lib/auth";
-import { getDbPath } from "@/lib/fs";
+import { getDbConnection } from "@/lib/db-pool";
 import { getDatabase } from "@/lib/registry";
-import Database from "better-sqlite3";
 import { NextResponse } from "next/server";
 
 interface Params {
@@ -27,8 +26,7 @@ export async function POST(req: Request, { params }: Params) {
 
   const { sql, bindings = [] } = body as { sql: string; bindings?: unknown[] };
 
-  const dbPath = getDbPath(name);
-  const db = new Database(dbPath);
+  const db = getDbConnection(name);
 
   try {
     const stmt = db.prepare(sql);
@@ -60,7 +58,5 @@ export async function POST(req: Request, { params }: Params) {
       { error: (err as Error).message },
       { status: 400 }
     );
-  } finally {
-    db.close();
   }
 }
