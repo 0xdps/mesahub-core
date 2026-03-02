@@ -1,0 +1,23 @@
+import { logout } from "@/lib/actions";
+import Link from "next/link";
+
+export default function AdminLayout({ children }: { children: React.ReactNode }) {
+  return (
+    <div className="min-h-screen bg-neutral-950 text-neutral-100 flex flex-col">
+      <header className="border-b border-neutral-800 px-6 py-3 flex items-center justify-between">
+        <Link href="/" className="text-sm font-semibold tracking-tight text-white">
+          file-db
+        </Link>
+        <form action={logout}>
+          <button
+            type="submit"
+            className="text-xs text-neutral-400 hover:text-white transition-colors"
+          >
+            Sign out
+          </button>
+        </form>
+      </header>
+      <main className="flex-1 px-6 py-8 max-w-5xl mx-auto w-full">{children}</main>
+    </div>
+  );
+}
