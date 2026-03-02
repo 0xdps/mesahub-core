@@ -1,8 +1,11 @@
 {
-  "name": "sqlite-db-hub",
+  "name": "sqlite-hub",
   "version": "0.1.0",
   "description": "Centralized SQLite storage service for internal Railway workloads",
   "private": true,
+  "workspaces": [
+    "packages/*"
+  ],
   "scripts": {
     "dev": "next dev -p 3008",
     "start": "next start",

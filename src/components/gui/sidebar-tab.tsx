@@ -54,7 +54,7 @@ export default function SidebarTab({ tabs }: Readonly<SidebarTabProps>) {
             </DropdownMenuTrigger>
             <DropdownMenuContent side="right" align="start">
               <div className="px-3 py-2">
-                <div className="font-semibold text-sm">sqlite-db-hub</div>
+                <div className="font-semibold text-sm">sqlite-hub</div>
                 <div className="text-xs text-neutral-500">SQLite viewer</div>
               </div>
 
@@ -74,7 +74,7 @@ export default function SidebarTab({ tabs }: Readonly<SidebarTabProps>) {
               <DropdownMenuItem inset>
                 <Link
                   className="block w-full"
-                  href="https://github.com/0xdps/sqlite-db-hub/issues"
+                  href="https://github.com/0xdps/sqlite-hub/issues"
                   target="_blank"
                 >
                   Report issues

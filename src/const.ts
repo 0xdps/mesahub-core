@@ -5,5 +5,5 @@ export enum MessageChannelName {
 }
 
 export const TAB_PREFIX_SAVED_QUERY = "saved-query-";
-export const WEBSITE_NAME = "sqlite-db-hub";
+export const WEBSITE_NAME = "sqlite-hub";
 export const WEBSITE_GENERAL_DESCRIPTION = "Centralized SQLite storage service for internal Railway workloads";

@@ -2,9 +2,9 @@ import pingpong from "@pingpong-js/fetch";
 import type { IAdapter, RawResult } from "./types.js";
 
 export interface HttpAdapterOptions {
-  /** Base URL of the sqlite-db-hub deployment, e.g. https://my-app.up.railway.app */
+  /** Base URL of the sqlite-hub deployment, e.g. https://my-app.up.railway.app */
   url: string;
-  /** ADMIN_TOKEN configured on the sqlite-db-hub service */
+  /** ADMIN_TOKEN configured on the sqlite-hub service */
   token: string;
   /** Name of the database to operate on */
   db: string;
@@ -13,7 +13,7 @@ export interface HttpAdapterOptions {
 }
 
 /**
- * Adapter that executes SQL via the sqlite-db-hub HTTP API
+ * Adapter that executes SQL via the sqlite-hub HTTP API
  * (POST /api/db/:name/exec).
  */
 export class HttpAdapter implements IAdapter {
@@ -45,7 +45,7 @@ export class HttpAdapter implements IAdapter {
       const body = res.data as { error?: string } | null;
       throw new Error(
         body?.error ??
-          `sqlite-db-hub: HTTP ${res.status} for db "${this.options.db}"`
+          `sqlite-hub: HTTP ${res.status} for db "${this.options.db}"`
       );
     }
 

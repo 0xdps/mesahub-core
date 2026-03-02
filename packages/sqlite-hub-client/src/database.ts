@@ -311,7 +311,7 @@ export class Database {
     const result = await this.adapter.exec<T>(sql, bindings);
     if (!isQueryResult(result)) {
       throw new Error(
-        `sqlite-db-hub: expected SELECT, got write result for: ${sql}`
+        `sqlite-hub: expected SELECT, got write result for: ${sql}`
       );
     }
     return result.rows;
@@ -324,7 +324,7 @@ export class Database {
     const result = await this.adapter.exec(sql, bindings);
     if (!isExecResult(result)) {
       throw new Error(
-        `sqlite-db-hub: expected write result, got SELECT for: ${sql}`
+        `sqlite-hub: expected write result, got SELECT for: ${sql}`
       );
     }
     return result;

@@ -13,14 +13,22 @@ export function getRegistry(): Database.Database {
   _registry.pragma("journal_mode = WAL");
   _registry.exec(`
     CREATE TABLE IF NOT EXISTS databases (
-      id          INTEGER PRIMARY KEY AUTOINCREMENT,
-      name        TEXT UNIQUE NOT NULL,
-      owner       TEXT NOT NULL,
-      description TEXT,
-      created_at  DATETIME DEFAULT CURRENT_TIMESTAMP,
-      status      TEXT DEFAULT 'active'
+      id             INTEGER PRIMARY KEY AUTOINCREMENT,
+      name           TEXT UNIQUE NOT NULL,
+      owner          TEXT NOT NULL,
+      description    TEXT,
+      service_secret TEXT,
+      created_at     DATETIME DEFAULT CURRENT_TIMESTAMP,
+      status         TEXT DEFAULT 'active'
     );
   `);
+  // Migrate existing installations — add column if missing
+  const cols = _registry
+    .prepare("PRAGMA table_info(databases)")
+    .all() as { name: string }[];
+  if (!cols.some((c) => c.name === "service_secret")) {
+    _registry.exec("ALTER TABLE databases ADD COLUMN service_secret TEXT");
+  }
   return _registry;
 }
 
@@ -29,6 +37,7 @@ export interface DbRecord {
   name: string;
   owner: string;
   description: string | null;
+  service_secret: string | null;
   created_at: string;
   status: string;
 }
@@ -41,9 +50,13 @@ export function getDatabase(name: string): DbRecord | null {
   return (getRegistry().prepare("SELECT * FROM databases WHERE name = ?").get(name) as DbRecord) ?? null;
 }
 
-export function insertDatabase(name: string, owner: string, description?: string): DbRecord {
+export function getDbByServiceSecret(secret: string): DbRecord | null {
+  return (getRegistry().prepare("SELECT * FROM databases WHERE service_secret = ? AND status = 'active'").get(secret) as DbRecord) ?? null;
+}
+
+export function insertDatabase(name: string, owner: string, description?: string, serviceSecret?: string): DbRecord {
   const db = getRegistry();
-  db.prepare("INSERT INTO databases (name, owner, description) VALUES (?, ?, ?)").run(name, owner, description ?? null);
+  db.prepare("INSERT INTO databases (name, owner, description, service_secret) VALUES (?, ?, ?, ?)").run(name, owner, description ?? null, serviceSecret ?? null);
   return getDatabase(name)!;
 }
 

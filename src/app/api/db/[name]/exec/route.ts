@@ -1,4 +1,5 @@
 import type { DatabaseHeader } from "@/drivers/base-driver";
+import { authorizeDbRequest } from "@/lib/auth";
 import { getDbPath } from "@/lib/fs";
 import { getDatabase } from "@/lib/registry";
 import Database from "better-sqlite3";
@@ -15,6 +16,9 @@ export async function POST(req: Request, { params }: Params) {
   if (!record || record.status !== "active") {
     return NextResponse.json({ error: "Database not found" }, { status: 404 });
   }
+
+  const authError = authorizeDbRequest(req, record);
+  if (authError) return authError;
 
   const body = await req.json().catch(() => null);
   if (!body || typeof body.sql !== "string") {

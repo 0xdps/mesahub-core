@@ -15,12 +15,12 @@ import { HttpAdapter, type HttpAdapterOptions } from "./adapters/http.js";
 import { Database } from "./database.js";
 
 /**
- * Create a Database connected to a sqlite-db-hub service over HTTP.
+ * Create a Database connected to a sqlite-hub service over HTTP.
  *
  * @example
  * const db = connect({
- *   url:   process.env.SQLITE_DB_HUB_URL,
- *   token: process.env.SQLITE_DB_HUB_TOKEN,
+ *   url:   process.env.SQLITE_HUB_URL,
+ *   token: process.env.SQLITE_HUB_TOKEN,
  *   db:    "my-service",
  * });
  */

@@ -1,14 +1,14 @@
 {
   "name": "sqlite-hub-client",
   "version": "0.2.0",
-  "description": "High-level SQLite client for sqlite-db-hub — HTTP adapter included, direct SQLite coming soon",
+  "description": "High-level SQLite client for sqlite-hub — HTTP adapter included, direct SQLite coming soon",
   "main": "dist/index.js",
   "types": "dist/index.d.ts",
   "files": ["dist", "README.md"],
   "scripts": {
     "build": "tsc"
   },
-  "keywords": ["sqlite", "sqlite-db-hub", "railway", "orm", "database"],
+  "keywords": ["sqlite", "sqlite-hub", "railway", "orm", "database"],
   "license": "MIT",
   "dependencies": {
     "@pingpong-js/fetch": "^1.0.2"

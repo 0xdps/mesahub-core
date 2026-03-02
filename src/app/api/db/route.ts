@@ -6,6 +6,7 @@ import {
   listDatabases,
 } from "@/lib/registry";
 import Database from "better-sqlite3";
+import { randomBytes } from "crypto";
 import fs from "fs";
 import { NextResponse } from "next/server";
 import path from "path";
@@ -36,10 +37,11 @@ export async function POST(req: Request) {
     return NextResponse.json({ error: "name and owner are required" }, { status: 400 });
   }
 
-  const { name, owner, description } = body as {
+  const { name, owner, description, generate_secret } = body as {
     name: string;
     owner: string;
     description?: string;
+    generate_secret?: boolean;
   };
 
   if (!NAME_REGEX.test(name)) {
@@ -70,6 +72,18 @@ export async function POST(req: Request) {
   newDb.pragma("journal_mode = WAL");
   newDb.close();
 
-  const record = insertDatabase(name, owner, description);
-  return NextResponse.json(withStats(record), { status: 201 });
+  const serviceSecret = generate_secret
+    ? `shs_${randomBytes(32).toString("hex")}`
+    : undefined;
+
+  const record = insertDatabase(name, owner, description, serviceSecret);
+
+  return NextResponse.json(
+    {
+      ...withStats(record),
+      // Return the plaintext secret only at creation time — never surfaced again
+      ...(serviceSecret ? { service_secret: serviceSecret } : {}),
+    },
+    { status: 201 }
+  );
 }

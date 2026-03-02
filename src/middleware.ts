@@ -4,6 +4,9 @@ import { NextRequest, NextResponse } from "next/server";
 
 const PUBLIC_PREFIXES = ["/login", "/api/health", "/api/auth"];
 
+// These routes enforce their own per-DB auth (service secret / internal IP)
+const DB_SCOPED_PATTERN = /^\/api\/db\/[^/]+(\/exec|\/query)$/;
+
 export async function middleware(req: NextRequest) {
   const { pathname } = req.nextUrl;
 
@@ -15,7 +18,13 @@ export async function middleware(req: NextRequest) {
     return NextResponse.next();
   }
 
-  // Service-to-service: accept Authorization: Bearer <ADMIN_TOKEN>
+  // DB-scoped routes: let the route handler verify auth (service secret / internal IP / admin token)
+  if (DB_SCOPED_PATTERN.test(pathname)) {
+    return NextResponse.next();
+  }
+
+  // All other routes: require ADMIN_TOKEN bearer or a valid browser session
+
   const authHeader = req.headers.get("authorization");
   if (authHeader?.startsWith("Bearer ")) {
     const provided = authHeader.slice(7);
@@ -31,8 +40,6 @@ export async function middleware(req: NextRequest) {
   const session = await getIronSession<SessionData>(req, res, sessionOptions);
 
   if (!session.isLoggedIn) {
-    // Only redirect GET requests (page navigations) to /login
-    // API calls without auth get a 401 JSON response
     if (pathname.startsWith("/api/")) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     }

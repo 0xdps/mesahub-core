@@ -1,18 +1,18 @@
-# sqlite-db-client
+# sqlite-hub-client
 
-High-level TypeScript/JavaScript client for [sqlite-db-hub](https://github.com/0xdps/sqlite-db-hub).  
+High-level TypeScript/JavaScript client for [sqlite-hub](https://github.com/0xdps/sqlite-hub).  
 Comes with a full set of APIs for schema management, reads, writes — all using an **adapter** abstraction so the same code works over HTTP today and can talk to SQLite directly later.
 
 ## Install
 
 ```bash
-npm install sqlite-db-client
+npm install sqlite-hub-client
 ```
 
 ## Quick start
 
 ```ts
-import { connect } from "sqlite-db-client";
+import { connect } from "sqlite-hub-client";
 
 const db = connect({
   url: process.env.SQLITE_DB_HUB_URL, // e.g. https://my-app.up.railway.app
@@ -92,8 +92,8 @@ const result = await db.exec("PRAGMA table_info(users)");
 
 | Option    | Type     | Required | Description                                           |
 | --------- | -------- | -------- | ----------------------------------------------------- |
-| `url`     | `string` | ✅       | Base URL of your sqlite-db-hub deployment             |
-| `token`   | `string` | ✅       | `ADMIN_TOKEN` configured on the sqlite-db-hub service |
+| `url`     | `string` | ✅       | Base URL of your sqlite-hub deployment             |
+| `token`   | `string` | ✅       | `ADMIN_TOKEN` configured on the sqlite-hub service |
 | `db`      | `string` | ✅       | Name of the database to operate on                    |
 | `timeout` | `number` | ❌       | Request timeout in ms (default: `10000`)              |
 
@@ -251,12 +251,12 @@ await db.exec("CREATE INDEX IF NOT EXISTS idx_title ON posts (title)");
 ## Architecture
 
 ```
-sqlite-db-client
+sqlite-hub-client
 ├── index.ts              ← connect() factory + all public exports
 ├── database.ts           ← Database class — all high-level APIs
 └── adapters/
     ├── types.ts          ← IAdapter interface (exec only)
-    ├── http.ts           ← HttpAdapter (sqlite-db-hub over HTTP)
+    ├── http.ts           ← HttpAdapter (sqlite-hub over HTTP)
     └── index.ts          ← re-exports
 ```
 
@@ -264,8 +264,8 @@ Adding a direct SQLite adapter in the future is a one-liner:
 
 ```ts
 // future
-import { Database } from "sqlite-db-client";
-import { DirectAdapter } from "sqlite-db-client/adapters/direct"; // coming soon
+import { Database } from "sqlite-hub-client";
+import { DirectAdapter } from "sqlite-hub-client/adapters/direct"; // coming soon
 
 const db = new Database(new DirectAdapter({ path: "./local.db" }));
 // same API — createTable, find, insert, update, delete…
@@ -278,19 +278,19 @@ MIT
 ## Install
 
 ```bash
-npm install sqlite-db-hub-client
+npm install sqlite-hub-client
 ```
 
 Or directly from GitHub (before the npm package is published):
 
 ```bash
-npm install github:0xdps/sqlite-db-hub-client
+npm install github:0xdps/sqlite-hub-client
 ```
 
 ## Quick start
 
 ```ts
-import { createClient } from "sqlite-db-hub-client";
+import { createClient } from "sqlite-hub-client";
 
 const db = createClient({
   url: process.env.SQLITE_DB_HUB_URL, // e.g. https://my-app.up.railway.app
@@ -331,8 +331,8 @@ const user = await db.queryOne<{ id: number; email: string }>(
 
 | Option    | Type     | Required | Description                                           |
 | --------- | -------- | -------- | ----------------------------------------------------- |
-| `url`     | `string` | ✅       | Base URL of your sqlite-db-hub deployment             |
-| `token`   | `string` | ✅       | `ADMIN_TOKEN` configured on the sqlite-db-hub service |
+| `url`     | `string` | ✅       | Base URL of your sqlite-hub deployment             |
+| `token`   | `string` | ✅       | `ADMIN_TOKEN` configured on the sqlite-hub service |
 | `db`      | `string` | ✅       | Name of the database to operate on                    |
 | `timeout` | `number` | ❌       | Request timeout in ms (default: `10000`)              |
 
