@@ -1,14 +1,14 @@
 {
-  "name": "file-db-client",
+  "name": "sqlite-hub-client",
   "version": "0.1.0",
-  "description": "Lightweight client SDK for file-db — SQLite over HTTP",
+  "description": "Lightweight client SDK for sqlite-hub — SQLite over HTTP",
   "main": "dist/index.js",
   "types": "dist/index.d.ts",
   "files": ["dist"],
   "scripts": {
     "build": "tsc"
   },
-  "keywords": ["sqlite", "file-db", "railway"],
+  "keywords": ["sqlite", "sqlite-hub", "railway"],
   "license": "MIT",
   "dependencies": {
     "@pingpong-js/fetch": "^1.0.2"

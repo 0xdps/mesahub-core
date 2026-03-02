@@ -1,4 +1,4 @@
-# file-db
+# sqlite-hub
 
 **A centralized SQLite storage service for internal Railway workloads.**
 
@@ -45,8 +45,8 @@ A `registry.db` meta-database tracks names, owners, and soft-deletes.
 
 ```bash
 # 1. Clone and install
-git clone https://github.com/0xdps/file-db.git
-cd file-db
+git clone https://github.com/0xdps/sqlite-hub.git
+cd sqlite-hub
 npm install
 
 # 2. Copy env and fill in values

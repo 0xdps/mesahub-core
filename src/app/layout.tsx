@@ -7,7 +7,7 @@ import { DialogProvider } from "@/components/create-dialog";
 import { ThemeProvider } from "next-themes";
 
 export const metadata: Metadata = {
-  title: "file-db",
+  title: "sqlite-hub",
   description: "Centralized SQLite storage service for internal Railway workloads",
 };
 

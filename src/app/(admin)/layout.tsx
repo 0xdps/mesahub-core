@@ -6,8 +6,8 @@ export default function AdminLayout({ children }: { children: React.ReactNode })
     <div className="min-h-screen bg-neutral-950 text-neutral-100 flex flex-col">
       <header className="border-b border-neutral-800 px-6 py-3 flex items-center justify-between">
         <Link href="/" className="flex items-center gap-2">
-          <img src="/logo.svg" alt="file-db" className="w-6 h-6 rounded" />
-          <span className="text-sm font-semibold tracking-tight text-white">file-db</span>
+          <img src="/logo.svg" alt="sqlite-hub" className="w-6 h-6 rounded" />
+          <span className="text-sm font-semibold tracking-tight text-white">sqlite-hub</span>
         </Link>
         <form action={logout}>
           <button
