@@ -1,0 +1,54 @@
+import pingpong from "@pingpong-js/fetch";
+import type { IAdapter, RawResult } from "./types.js";
+
+export interface HttpAdapterOptions {
+  /** Base URL of the sqlite-db-hub deployment, e.g. https://my-app.up.railway.app */
+  url: string;
+  /** ADMIN_TOKEN configured on the sqlite-db-hub service */
+  token: string;
+  /** Name of the database to operate on */
+  db: string;
+  /** Request timeout in ms (default: 10 000) */
+  timeout?: number;
+}
+
+/**
+ * Adapter that executes SQL via the sqlite-db-hub HTTP API
+ * (POST /api/db/:name/exec).
+ */
+export class HttpAdapter implements IAdapter {
+  private readonly http: ReturnType<typeof pingpong.create>;
+  private readonly dbPath: string;
+
+  constructor(private readonly options: HttpAdapterOptions) {
+    this.dbPath = `/api/db/${encodeURIComponent(options.db)}/exec`;
+    this.http = pingpong.create({
+      baseURL: options.url.replace(/\/$/, ""),
+      timeout: options.timeout ?? 10_000,
+      headers: {
+        Authorization: `Bearer ${options.token}`,
+        "Content-Type": "application/json",
+      },
+    });
+  }
+
+  async exec<T = Record<string, unknown>>(
+    sql: string,
+    bindings?: unknown[]
+  ): Promise<RawResult<T>> {
+    const res = await this.http.post(this.dbPath, {
+      sql,
+      ...(bindings?.length ? { bindings } : {}),
+    });
+
+    if (res.isError()) {
+      const body = res.data as { error?: string } | null;
+      throw new Error(
+        body?.error ??
+          `sqlite-db-hub: HTTP ${res.status} for db "${this.options.db}"`
+      );
+    }
+
+    return res.data as RawResult<T>;
+  }
+}
