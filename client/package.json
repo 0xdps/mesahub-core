@@ -4,7 +4,7 @@
   "description": "Lightweight client SDK for sqlite-db-hub — SQLite over HTTP",
   "main": "dist/index.js",
   "types": "dist/index.d.ts",
-  "files": ["dist"],
+  "files": ["dist", "README.md"],
   "scripts": {
     "build": "tsc"
   },
