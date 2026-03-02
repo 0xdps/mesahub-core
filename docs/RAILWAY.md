@@ -1,50 +1,57 @@
-# Deploy and Host sqlite-hub on Railway
+# Deploy and Host SQLite Hub on Railway
 
-sqlite-hub is a self-hosted SQLite management service with a built-in visual studio. Each database is a single `.db` file stored on a Railway volume. Services in your project connect via HTTP using a shared admin token — no separate database infrastructure needed.
+SQLite Hub is a self-hosted SQLite management service with a built-in admin studio. Each database is a single `.db` file served over HTTP. Other services connect using a per-database service secret — no Postgres or external database needed.
 
-## About Hosting sqlite-hub
+## About Hosting SQLite Hub
 
-Hosting sqlite-hub on Railway requires a single service with a persistent volume mounted at `/data`. All SQLite databases are stored as `.db` files on that volume. The app exposes an admin dashboard for browsing, querying, and managing databases, protected by a token-based auth layer. A `SESSION_SECRET` is used to sign session cookies. Both secrets are auto-generated on deploy. The service runs a standalone Next.js server and is accessible over a Railway-generated HTTPS URL.
+Hosting SQLite Hub on Railway requires a single service backed by a persistent volume mounted at `/data`. All `.db` files live on that volume and survive deploys. The service exposes an admin dashboard protected by an `ADMIN_TOKEN` (login only) and a `SESSION_SECRET` for encrypted cookies. Each database gets its own `service_secret` that external services use as a Bearer token. The app runs as a standalone Next.js server behind a Railway-generated HTTPS URL.
 
 ## Common Use Cases
 
-- **Cross-service shared state** — multiple Railway services write and read a single SQLite file over HTTP without running Postgres
-- **Lightweight job queues & feature flags** — store ephemeral application state in a durable flat file with zero ops overhead
-- **Internal admin tools** — visually browse and query SQLite databases produced by your backend services, directly in the browser
+- **Cross-service shared state** — multiple Railway services read and write a single SQLite file over HTTP without running Postgres
+- **Lightweight job queues & feature flags** — durable flat-file storage with zero ops overhead
+- **Internal admin tools** — visually browse and query SQLite databases from any service, directly in the browser
 
-## Dependencies for sqlite-hub Hosting
+## Dependencies for SQLite Hub Hosting
 
 - A Railway **persistent volume** mounted at `/data` to store `.db` files across deploys
-- `ADMIN_TOKEN` environment variable shared with any service that connects to the sqlite-hub API
+- Three environment variables: `DATA_PATH=/data`, `ADMIN_TOKEN=${{ secret(16) }}`, `SESSION_SECRET=${{ secret(32) }}`
 
 ### Deployment Dependencies
 
-- [sqlite-hub on GitHub](https://github.com/0xdps/sqlite-hub)
+- [SQLite Hub on GitHub](https://github.com/0xdps/sqlite-hub)
 - [Railway Volumes documentation](https://docs.railway.com/volumes)
-- [Outerbase Studio (upstream)](https://github.com/outerbase/studio) — the open-source SQL viewer this project is built on
+- [sqlite-hub-client on npm](https://www.npmjs.com/package/sqlite-hub-client) — official Node.js client
 
 ### Implementation Details
 
-Services connect to sqlite-hub by posting SQL to the query API:
+Install the client in any service that needs to connect:
 
 ```bash
-curl -X POST https://your-sqlite-hub.railway.app/api/db/mydb/query \
-  -H "Authorization: Bearer $ADMIN_TOKEN" \
-  -H "Content-Type: application/json" \
-  -d '{"sql": "SELECT * FROM jobs LIMIT 10"}'
+npm install sqlite-hub-client
 ```
 
-Create a new database:
+```ts
+import { connect } from "sqlite-hub-client";
 
-```bash
-curl -X POST https://your-sqlite-hub.railway.app/api/db \
-  -H "Authorization: Bearer $ADMIN_TOKEN" \
-  -H "Content-Type: application/json" \
-  -d '{"name": "mydb", "owner": "billing-service"}'
+const db = connect({
+  url: process.env.SQLITE_HUB_URL,
+  token: process.env.SQLITE_HUB_SERVICE_SECRET,
+  database: "mydb",
+});
+
+await db.insert("events", { name: "signup", created_at: new Date().toISOString() });
 ```
 
-## Why Deploy sqlite-hub on Railway?
+Set these variables on the consuming service:
+
+```
+SQLITE_HUB_URL=https://<your-service>.up.railway.app
+SQLITE_HUB_SERVICE_SECRET=shs_<generated in admin dashboard>
+```
+
+## Why Deploy SQLite Hub on Railway?
 
 Railway is a singular platform to deploy your infrastructure stack. Railway will host your infrastructure so you don't have to deal with configuration, while allowing you to vertically and horizontally scale it.
 
-By deploying sqlite-hub on Railway, you are one step closer to supporting a complete full-stack application with minimal burden. Host your servers, databases, AI agents, and more on Railway.
+By deploying SQLite Hub on Railway, you are one step closer to supporting a complete full-stack application with minimal burden. Host your servers, databases, AI agents, and more on Railway.
