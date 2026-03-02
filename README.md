@@ -15,13 +15,13 @@ Each service in your Railway project gets its own SQLite database file, all stor
 
 ## Stack
 
-| Layer | Technology |
-|---|---|
-| Framework | Next.js 15 (App Router) |
-| SQLite access | `better-sqlite3` (server-side) |
-| Session auth | `iron-session` (signed cookies) |
-| DB viewer | Outerbase Studio UI (stripped, custom driver) |
-| Deploy | Railway + persistent volume |
+| Layer         | Technology                                    |
+| ------------- | --------------------------------------------- |
+| Framework     | Next.js 15 (App Router)                       |
+| SQLite access | `better-sqlite3` (server-side)                |
+| Session auth  | `iron-session` (signed cookies)               |
+| DB viewer     | Outerbase Studio UI (stripped, custom driver) |
+| Deploy        | Railway + persistent volume                   |
 
 ## Architecture
 
@@ -60,12 +60,12 @@ Open [http://localhost:3008](http://localhost:3008) — you'll be redirected to 
 
 ## Environment variables
 
-| Variable | Required | Default | Description |
-|---|---|---|---|
-| `ADMIN_TOKEN` | ✅ | — | Token used to authenticate to the dashboard and API |
-| `SESSION_SECRET` | ✅ | — | At least 32-character string for signing session cookies |
-| `DATA_PATH` | ❌ | `/data` | Directory where `.db` files are stored |
-| `MAX_VOLUME_USAGE_PERCENT` | ❌ | `85` | Block new DB creation above this disk usage % |
+| Variable                   | Required | Default | Description                                              |
+| -------------------------- | -------- | ------- | -------------------------------------------------------- |
+| `ADMIN_TOKEN`              | ✅       | —       | Token used to authenticate to the dashboard and API      |
+| `SESSION_SECRET`           | ✅       | —       | At least 32-character string for signing session cookies |
+| `DATA_PATH`                | ❌       | `/data` | Directory where `.db` files are stored                   |
+| `MAX_VOLUME_USAGE_PERCENT` | ❌       | `85`    | Block new DB creation above this disk usage %            |
 
 ## Deployment (Railway)
 
@@ -77,23 +77,26 @@ Open [http://localhost:3008](http://localhost:3008) — you'll be redirected to 
 ## API reference
 
 ### Databases
-| Method | Path | Description |
-|---|---|---|
-| `GET` | `/api/db` | List all active databases |
-| `POST` | `/api/db` | Register a new database `{ name, owner?, description? }` |
-| `GET` | `/api/db/:name` | Get metadata + file size for a database |
-| `DELETE` | `/api/db/:name` | Soft-delete a database |
+
+| Method   | Path            | Description                                              |
+| -------- | --------------- | -------------------------------------------------------- |
+| `GET`    | `/api/db`       | List all active databases                                |
+| `POST`   | `/api/db`       | Register a new database `{ name, owner?, description? }` |
+| `GET`    | `/api/db/:name` | Get metadata + file size for a database                  |
+| `DELETE` | `/api/db/:name` | Soft-delete a database                                   |
 
 ### Query (read-only)
-| Method | Path | Description |
-|---|---|---|
+
+| Method | Path                  | Description                      |
+| ------ | --------------------- | -------------------------------- |
 | `POST` | `/api/db/:name/query` | Run a SELECT statement `{ sql }` |
 
 ### System
-| Method | Path | Description |
-|---|---|---|
-| `GET` | `/api/health` | Health check |
-| `GET` | `/api/metrics` | Volume usage + per-DB sizes |
+
+| Method | Path           | Description                 |
+| ------ | -------------- | --------------------------- |
+| `GET`  | `/api/health`  | Health check                |
+| `GET`  | `/api/metrics` | Volume usage + per-DB sizes |
 
 > All API routes except `/api/health` require the `ADMIN_TOKEN` via `Authorization: Bearer <token>` header.
 
@@ -106,11 +109,11 @@ Open [http://localhost:3008](http://localhost:3008) — you'll be redirected to 
 
 MIT
 
-  - SQLite (local files)
-  - Cloudflare D1
-  - rqlite
-  - StarbaseDB
-  - Val.town
+- SQLite (local files)
+- Cloudflare D1
+- rqlite
+- StarbaseDB
+- Val.town
 - MySQL (beta, limited features)
 - PostgreSQL (beta, limited features)
 

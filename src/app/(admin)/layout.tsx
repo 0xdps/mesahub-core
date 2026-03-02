@@ -17,7 +17,7 @@ export default function AdminLayout({ children }: { children: React.ReactNode })
           </button>
         </form>
       </header>
-      <main className="flex-1 px-6 py-8 max-w-5xl mx-auto w-full">{children}</main>
+      <main className="flex-1 flex flex-col overflow-hidden">{children}</main>
     </div>
   );
 }

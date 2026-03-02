@@ -36,6 +36,7 @@ export default function NewDatabasePage() {
   }
 
   return (
+    <div className="px-6 py-8 max-w-5xl mx-auto w-full">
     <div className="max-w-lg">
       <div className="mb-6">
         <Link href="/" className="text-sm text-neutral-400 hover:text-white">
@@ -102,6 +103,7 @@ export default function NewDatabasePage() {
           {loading ? "Creating…" : "Create database"}
         </button>
       </form>
+    </div>
     </div>
   );
 }

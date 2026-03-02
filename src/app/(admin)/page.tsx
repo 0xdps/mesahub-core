@@ -19,7 +19,7 @@ export default function DashboardPage() {
   const activeDbs = dbs.filter((d) => d.status === "active");
 
   return (
-    <div>
+    <div className="px-6 py-8 max-w-5xl mx-auto w-full">
       <div className="flex items-center justify-between mb-8">
         <div>
           <h1 className="text-xl font-semibold">Databases</h1>

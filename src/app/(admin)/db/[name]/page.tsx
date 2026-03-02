@@ -21,11 +21,13 @@ export default function DbViewerPage({
   );
 
   return (
-    <Studio
-      driver={driver}
-      extensions={extensions}
-      name={name}
-      color="gray"
-    />
+    <div className="h-full flex-1 dark">
+      <Studio
+        driver={driver}
+        extensions={extensions}
+        name={name}
+        color="gray"
+      />
+    </div>
   );
 }
