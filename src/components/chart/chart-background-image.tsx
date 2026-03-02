@@ -2,14 +2,7 @@ import { produce } from "immer";
 import { Dispatch, SetStateAction } from "react";
 import { ChartValue, outerBaseUrl } from "./chart-type";
 
-const PRESET_IMAGES = [
-  "/assets/charts/outerbase1.png",
-  "/assets/charts/outerbase2.png",
-  "/assets/charts/outerbase3.png",
-  "/assets/charts/outerbase4.png",
-  "/assets/charts/outerbase5.png",
-  "/assets/charts/outerbase6.png",
-];
+const PRESET_IMAGES: string[] = [];
 
 interface ChartBackgroundImageProps {
   onChange: Dispatch<SetStateAction<ChartValue>>;
