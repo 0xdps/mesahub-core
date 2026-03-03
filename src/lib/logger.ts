@@ -3,7 +3,10 @@
  * All output goes to stdout/stderr so Railway captures it automatically.
  *
  * Format: [ISO timestamp] LEVEL  message
+ * 
+ * const VERSION = "1.0.1";
  */
+
 function ts() {
   return new Date().toISOString();
 }
