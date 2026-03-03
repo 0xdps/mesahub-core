@@ -33,3 +33,13 @@ export function getReadonlyDbConnection(name: string): Database.Database {
   }
   return db;
 }
+
+export function closeDbConnection(name: string): void {
+  const rw = _pool.get(name);
+  if (rw?.open) rw.close();
+  _pool.delete(name);
+
+  const ro = _readonlyPool.get(name);
+  if (ro?.open) ro.close();
+  _readonlyPool.delete(name);
+}

@@ -51,6 +51,16 @@ export default function DashboardPage() {
         </div>
       </div>
 
+      {/* Deleted databases link */}
+      <div className="mb-8">
+        <Link
+          href="/deleted"
+          className="text-sm text-neutral-400 hover:text-white transition-colors"
+        >
+          View deleted databases →
+        </Link>
+      </div>
+
       {/* DB table */}
       {dbs.length === 0 ? (
         <div className="text-center py-16 text-neutral-500 text-sm">

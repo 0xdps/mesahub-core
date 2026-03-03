@@ -64,8 +64,9 @@ export async function POST(req: Request) {
   }
 
   const existing = getRegistry()
-    .prepare("SELECT id FROM databases WHERE name = ?")
-    .get(name);
+    .prepare("SELECT id, status FROM databases WHERE name = ?")
+    .get(name) as { id: number; status: string } | undefined;
+
   if (existing) {
     logger.warn(`[db] Create failed — database "${name}" already exists`);
     return NextResponse.json({ error: "Database already exists" }, { status: 409 });
@@ -83,6 +84,7 @@ export async function POST(req: Request) {
 
   const record = insertDatabase(name, owner, description, serviceSecret);
   logger.info(`[db] Created database "${name}" (owner: "${owner}"${serviceSecret ? ", with service secret" : ""})`);
+
 
   return NextResponse.json(
     {

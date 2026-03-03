@@ -2,6 +2,7 @@
 
 import Link from "next/link";
 import { use, useCallback, useEffect, useState } from "react";
+import { useRouter } from "next/navigation";
 
 interface DbInfo {
   name: string;
@@ -18,6 +19,7 @@ export default function DbSettingsPage({
   params: Promise<{ name: string }>;
 }) {
   const { name } = use(params);
+  const router = useRouter();
 
   const [db, setDb] = useState<DbInfo | null>(null);
   const [pageLoading, setPageLoading] = useState(true);
@@ -27,6 +29,8 @@ export default function DbSettingsPage({
   const [copied, setCopied] = useState(false);
   const [confirmRevoke, setConfirmRevoke] = useState(false);
   const [statusLoading, setStatusLoading] = useState(false);
+  const [confirmDropInput, setConfirmDropInput] = useState("");
+  const [dropLoading, setDropLoading] = useState(false);
 
   const loadDb = useCallback(() => {
     fetch(`/api/db/${name}`)
@@ -80,6 +84,20 @@ export default function DbSettingsPage({
     setDb((prev) => prev ? { ...prev, has_service_secret: false } : prev);
     setRevealedSecret(null);
     setConfirmRevoke(false);
+  }
+
+  async function handleDropDatabase() {
+    if (confirmDropInput !== name) return;
+    setDropLoading(true);
+    setError("");
+    const res = await fetch(`/api/db/${name}`, { method: "DELETE" });
+    setDropLoading(false);
+    if (!res.ok) {
+      const data = await res.json().catch(() => ({}));
+      setError(data.error ?? "Failed to drop database");
+      return;
+    }
+    router.push("/");
   }
 
   async function handleToggleStatus() {
@@ -278,6 +296,38 @@ export default function DbSettingsPage({
               </div>
             )}
           </div>
+        </div>
+
+        {/* Danger zone */}
+        <div className="border border-red-900/60 rounded-lg p-5 mt-4">
+          <h2 className="text-sm font-medium text-red-400 mb-1">Danger zone</h2>
+          <p className="text-xs text-neutral-400 mb-4">
+            Permanently drop this database and all its data. This action{" "}
+            <span className="text-white font-medium">cannot be undone</span>.
+            The database file will be deleted from disk.
+          </p>
+          <p className="text-xs text-neutral-400 mb-2">
+            Type{" "}
+            <span className="font-mono text-white">{name}</span>{" "}
+            to confirm:
+          </p>
+          <input
+            type="text"
+            value={confirmDropInput}
+            onChange={(e) => setConfirmDropInput(e.target.value)}
+            placeholder={name}
+            className="w-full text-sm bg-neutral-900 border border-neutral-700 rounded px-3 py-2 text-white placeholder:text-neutral-600 outline-none focus:border-red-700 mb-3"
+          />
+          <button
+            onClick={handleDropDatabase}
+            disabled={confirmDropInput !== name || dropLoading}
+            className="text-sm px-4 py-2 rounded bg-red-700 text-white hover:bg-red-600 transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
+          >
+            {dropLoading ? "Dropping…" : "Drop database"}
+          </button>
+          {error && (
+            <p className="text-xs text-red-400 mt-2">{error}</p>
+          )}
         </div>
       </div>
     </div>
