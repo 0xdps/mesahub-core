@@ -21,6 +21,6 @@
     "@pingpong-js/fetch": "^1.0.2"
   },
   "devDependencies": {
-    "typescript": "^5"
+    "typescript": "6.0.0-beta"
   }
 }
