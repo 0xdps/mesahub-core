@@ -1,4 +1,5 @@
 import { getDbPath, getFileSizeBytes, getVolumeUsagePercent } from "@/lib/fs";
+import { logger } from "@/lib/logger";
 import {
   DbRecord,
   getRegistry,
@@ -34,6 +35,7 @@ export async function POST(req: Request) {
   const body = await req.json().catch(() => null);
 
   if (!body || typeof body.name !== "string" || typeof body.owner !== "string") {
+    logger.warn("[db] Create failed — missing name or owner");
     return NextResponse.json({ error: "name and owner are required" }, { status: 400 });
   }
 
@@ -45,6 +47,7 @@ export async function POST(req: Request) {
   };
 
   if (!NAME_REGEX.test(name)) {
+    logger.warn(`[db] Create failed — invalid name: "${name}"`);
     return NextResponse.json(
       { error: "name must match ^[a-z0-9_-]+$" },
       { status: 400 }
@@ -53,6 +56,7 @@ export async function POST(req: Request) {
 
   const diskUsage = getVolumeUsagePercent();
   if (diskUsage >= MAX_USAGE) {
+    logger.warn(`[db] Create "${name}" blocked — volume usage ${diskUsage}% >= limit ${MAX_USAGE}%`);
     return NextResponse.json(
       { error: `Volume usage ${diskUsage}% exceeds limit of ${MAX_USAGE}%` },
       { status: 507 }
@@ -63,6 +67,7 @@ export async function POST(req: Request) {
     .prepare("SELECT id FROM databases WHERE name = ?")
     .get(name);
   if (existing) {
+    logger.warn(`[db] Create failed — database "${name}" already exists`);
     return NextResponse.json({ error: "Database already exists" }, { status: 409 });
   }
 
@@ -77,6 +82,7 @@ export async function POST(req: Request) {
     : undefined;
 
   const record = insertDatabase(name, owner, description, serviceSecret);
+  logger.info(`[db] Created database "${name}" (owner: "${owner}"${serviceSecret ? ", with service secret" : ""})`);
 
   return NextResponse.json(
     {

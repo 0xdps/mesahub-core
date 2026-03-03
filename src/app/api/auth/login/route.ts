@@ -1,3 +1,4 @@
+import { logger } from "@/lib/logger";
 import { SessionData, sessionOptions } from "@/lib/session";
 import { timingSafeEqual } from "crypto";
 import { getIronSession } from "iron-session";
@@ -12,6 +13,7 @@ export async function POST(req: Request) {
 
   const adminToken = process.env.ADMIN_TOKEN ?? "";
   if (!adminToken) {
+    logger.error("[auth] ADMIN_TOKEN is not configured");
     return NextResponse.json({ error: "ADMIN_TOKEN not configured" }, { status: 500 });
   }
 
@@ -23,6 +25,7 @@ export async function POST(req: Request) {
     timingSafeEqual(provided, expected);
 
   if (!match) {
+    logger.warn("[auth] Login failed — invalid token");
     return NextResponse.json({ error: "Invalid token" }, { status: 401 });
   }
 
@@ -31,6 +34,7 @@ export async function POST(req: Request) {
   const session = await getIronSession<SessionData>(cookieStore, sessionOptions);
   session.isLoggedIn = true;
   await session.save();
+  logger.info("[auth] Admin login successful");
 
   return res;
 }

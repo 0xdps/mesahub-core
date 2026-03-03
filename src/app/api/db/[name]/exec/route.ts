@@ -1,6 +1,7 @@
 import type { DatabaseHeader } from "@/drivers/base-driver";
 import { authorizeDbRequest } from "@/lib/auth";
 import { getDbConnection } from "@/lib/db-pool";
+import { logger } from "@/lib/logger";
 import { getDatabase } from "@/lib/registry";
 import { NextResponse } from "next/server";
 
@@ -13,11 +14,15 @@ export async function POST(req: Request, { params }: Params) {
 
   const record = getDatabase(name);
   if (!record) {
+    logger.warn(`[exec] "${name}" — database not found`);
     return NextResponse.json({ error: "Database not found" }, { status: 404 });
   }
 
   const authError = authorizeDbRequest(req, record);
-  if (authError) return authError;
+  if (authError) {
+    logger.warn(`[exec] "${name}" — auth rejected`);
+    return authError;
+  }
 
   const body = await req.json().catch(() => null);
   if (!body || typeof body.sql !== "string") {
@@ -29,6 +34,7 @@ export async function POST(req: Request, { params }: Params) {
   // Block writes on inactive DBs regardless of RETURNING clause
   const WRITE_PATTERN = /^\s*(INSERT|UPDATE|DELETE|DROP|ALTER|CREATE|ATTACH|DETACH|PRAGMA\s+\w+\s*=)/i;
   if (record.status !== "active" && WRITE_PATTERN.test(sql)) {
+    logger.warn(`[exec] "${name}" — write blocked (inactive): ${sql.slice(0, 80)}`);
     return NextResponse.json(
       { error: "Database is inactive — writes are not allowed" },
       { status: 403 }
@@ -63,6 +69,7 @@ export async function POST(req: Request, { params }: Params) {
       });
     }
   } catch (err) {
+    logger.warn(`[exec] "${name}" — SQL error: ${(err as Error).message} | sql: ${sql.slice(0, 120)}`);
     return NextResponse.json(
       { error: (err as Error).message },
       { status: 400 }
