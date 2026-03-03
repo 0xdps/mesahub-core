@@ -17,7 +17,9 @@ FROM node:20-alpine AS runner
 WORKDIR /app
 
 ENV NODE_ENV=production
-ENV HOSTNAME="0.0.0.0"
+# "::" binds to both IPv4 and IPv6 — required for Railway private networking
+# which resolves internal hostnames to IPv6 (fd12::/7) first.
+ENV HOSTNAME="::"
 # PORT is injected by Railway at runtime
 
 # Pre-create the data directory (overridden by Railway volume at runtime)
@@ -35,4 +37,4 @@ COPY --from=builder /app/node_modules/file-uri-to-path ./node_modules/file-uri-t
 
 EXPOSE 8080
 
-CMD ["sh", "-c", "node server.js -p $PORT -H 0.0.0.0"]
+CMD ["node", "server.js"]
