@@ -53,8 +53,8 @@ function isQueryResult<T>(
   return "rows" in r;
 }
 
-function isExecResult(r: RawResult): r is ExecResult {
-  return "rowsAffected" in r;
+function isExecResult(r: RawResult | null | undefined): r is ExecResult {
+  return r != null && "rowsAffected" in r;
 }
 
 // ── Database ─────────────────────────────────────────────────────────────────

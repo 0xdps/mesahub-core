@@ -45,14 +45,15 @@ export class HttpAdapter implements IAdapter {
       ...(bindings?.length ? { bindings } : {}),
     });
 
-    if (res.isError()) {
-      const body = res.data as { error?: string } | null;
+    const body = res.data as (RawResult<T> & { error?: string }) | null;
+
+    if (res.isError() || body == null) {
       throw new Error(
-        body?.error ??
-          `sqlite-hub: HTTP ${res.status} for db "${this.options.db}"`
+        (body as { error?: string } | null)?.error ??
+          `sqlite-hub: HTTP ${res.status} — no response body (db: "${this.options.db}")`
       );
     }
 
-    return res.data as RawResult<T>;
+    return body;
   }
 }
