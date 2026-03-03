@@ -5,3 +5,7 @@ builder = "dockerfile"
 startCommand = "node server.js"
 healthcheckPath = "/api/health"
 healthcheckTimeout = 60
+
+# When deploying a pre-built Docker Hub image, Railway uses the image
+# specified via the RAILWAY_DEPLOYMENT_IMAGE env var or set in the dashboard.
+# The builder above is kept as fallback for manual deploys.
