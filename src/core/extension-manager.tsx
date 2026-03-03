@@ -2,6 +2,7 @@ import { OptimizeTableHeaderProps } from "@/components/gui/table-optimized";
 import OptimizeTableState from "@/components/gui/table-optimized/optimize-table-state";
 import { TableHeaderMetadata } from "@/components/gui/table-result/type";
 import { DatabaseSchemaItem, DatabaseSchemas } from "@/drivers/base-driver";
+import { LucideIcon } from "lucide-react";
 import { ReactElement } from "react";
 import { IStudioExtension } from "./extension-base";
 import { BeforeQueryPipeline } from "./query-pipeline";
@@ -20,7 +21,7 @@ type AfterQueryHandler = () => Promise<void>;
 export interface StudioExtensionMenuItem {
   key: string;
   title: string;
-  icon?: ReactElement;
+  icon?: LucideIcon;
   onClick?: () => void;
   component?: ReactElement;
 }

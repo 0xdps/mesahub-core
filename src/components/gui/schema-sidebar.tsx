@@ -4,7 +4,7 @@ import { scc } from "@/core/command";
 import { StudioExtensionMenuItem } from "@/core/extension-manager";
 import { cn } from "@/lib/utils";
 import { Plus } from "@phosphor-icons/react";
-import { LucideSearch } from "lucide-react";
+import { LucideRefreshCw, LucideSearch } from "lucide-react";
 import { useMemo, useState } from "react";
 import { buttonVariants } from "../ui/button";
 import {
@@ -19,7 +19,7 @@ import SchemaList from "./schema-sidebar-list";
 export default function SchemaView() {
   const [search, setSearch] = useState("");
   const { databaseDriver, extensions } = useStudioContext();
-  const { currentSchemaName } = useSchema();
+  const { currentSchemaName, refresh } = useSchema();
   const [isCreateSchema, setIsCreateSchema] = useState(false);
 
   const contentMenu = useMemo(() => {
@@ -108,7 +108,19 @@ export default function SchemaView() {
       <div className="flex flex-col p-4 pb-2">
         <div className="mb-5 flex items-center justify-between">
           <h1 className="text-primary text-xl font-medium">Tables</h1>
-          {activatorButton}
+          <div className="flex items-center gap-1">
+            <button
+              className={cn(
+                buttonVariants({ size: "icon" }),
+                "h-8 w-8 rounded-full bg-neutral-800 dark:bg-neutral-200"
+              )}
+              onClick={() => refresh()}
+              title="Refresh tables"
+            >
+              <LucideRefreshCw size={14} />
+            </button>
+            {activatorButton}
+          </div>
         </div>
 
         <div className="flex h-[32px] w-full cursor-text items-center overflow-hidden rounded-md bg-white px-3 py-2.5 text-base text-neutral-900 outline outline-1 outline-neutral-200 focus:outline-neutral-400/70 disabled:cursor-not-allowed disabled:opacity-50 has-focus:outline-neutral-400/70 has-enabled:active:outline-neutral-400/70 has-disabled:cursor-not-allowed has-disabled:opacity-50 dark:bg-neutral-900 dark:text-white dark:outline-neutral-800 dark:focus:outline-neutral-600 dark:has-focus:outline-neutral-600 dark:has-enabled:active:outline-neutral-600">

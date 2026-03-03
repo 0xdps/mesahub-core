@@ -28,6 +28,7 @@ export default class ViewEditorExtension extends StudioExtension {
     studio.registerCreateResourceMenu({
       key: "view",
       title: "Create View",
+      icon: LucideView,
       onClick: () => {
         viewEditorExtensionTab.open({});
       },

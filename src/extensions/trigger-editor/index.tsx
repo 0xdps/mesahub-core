@@ -29,6 +29,7 @@ export default class TriggerEditorExtension extends StudioExtension {
     studio.registerCreateResourceMenu({
       key: "trigger",
       title: "Create Trigger",
+      icon: LucideCog,
       onClick: () => {
         triggerEditorExtensionTab.open({});
       },

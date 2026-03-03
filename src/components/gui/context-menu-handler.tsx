@@ -40,7 +40,12 @@ export function ContextMenuList({ menu }: { menu: OpenContextMenuList }) {
     if (item.sub) {
       return (
         <ContextMenuSub key={menuIndex}>
-          <ContextMenuSubTrigger inset>{item.title}</ContextMenuSubTrigger>
+          <ContextMenuSubTrigger inset={!item.icon}>
+            {item.icon && (
+              <item.icon className="mr-2 h-4 w-4" />
+            )}
+            {item.title}
+          </ContextMenuSubTrigger>
           <ContextMenuSubContent
             className={!item.subWidth ? "w-48" : ""}
             style={{ width: item.subWidth ? undefined : item.subWidth }}

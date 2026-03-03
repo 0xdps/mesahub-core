@@ -1,3 +1,4 @@
+import { useCommonDialog } from "@/components/common-dialog";
 import { useStudioContext } from "@/context/driver-provider";
 import { useSchema } from "@/context/schema-provider";
 import { OpenContextMenuList } from "@/core/channel-builtin";
@@ -6,7 +7,7 @@ import { DatabaseSchemaItem } from "@/drivers/base-driver";
 import { triggerEditorExtensionTab } from "@/extensions/trigger-editor";
 import { ExportFormat, exportTableData } from "@/lib/export-helper";
 import { Icon, Table } from "@phosphor-icons/react";
-import { LucideCog, LucideDatabase, LucideView } from "lucide-react";
+import { LucideCog, LucideClipboardCopy, LucideDatabase, LucideDownload, LucideEraser, LucideFileCode2, LucideFileJson, LucideFileSpreadsheet, LucideFileText, LucidePencil, LucidePlus, LucideRefreshCw, LucideTable, LucideTrash, LucideView } from "lucide-react";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { ListView, ListViewItem } from "../listview";
 import { CloudflareIcon } from "../resource-card/icon";
@@ -158,6 +159,7 @@ export default function SchemaList({ search }: Readonly<SchemaListProps>) {
   const { databaseDriver, extensions } = useStudioContext();
   const [selected, setSelected] = useState("");
   const { refresh, schema, currentSchemaName } = useSchema();
+  const { showDialog } = useCommonDialog();
   const [editSchema, setEditSchema] = useState<string | null>(null);
 
   const [collapsed, setCollapsed] = useState(() => {
@@ -170,10 +172,10 @@ export default function SchemaList({ search }: Readonly<SchemaListProps>) {
 
   const exportFormats = useMemo(() => {
     return [
-      { title: "Export as CSV", format: "csv" },
-      { title: "Export as Excel", format: "xlsx" },
-      { title: "Export as JSON", format: "json" },
-      { title: "Export as SQL INSERT", format: "sql" },
+      { title: "Export as CSV",        format: "csv",  icon: LucideFileText },
+      { title: "Export as Excel",      format: "xlsx", icon: LucideFileSpreadsheet },
+      { title: "Export as JSON",       format: "json", icon: LucideFileJson },
+      { title: "Export as SQL INSERT", format: "sql",  icon: LucideFileCode2 },
     ];
   }, []);
 
@@ -185,9 +187,11 @@ export default function SchemaList({ search }: Readonly<SchemaListProps>) {
 
       const createMenuSection = {
         title: "Create",
+        icon: LucidePlus,
         sub: [
           databaseDriver.getFlags().supportCreateUpdateTable && {
             title: "Create Table",
+            icon: LucideTable,
             onClick: () => {
               scc.tabs.openBuiltinSchema({
                 schemaName: item?.schemaName ?? currentSchemaName,
@@ -203,6 +207,7 @@ export default function SchemaList({ search }: Readonly<SchemaListProps>) {
             isTable && databaseDriver.getFlags().supportCreateUpdateTable
               ? {
                   title: "Edit Table",
+                  icon: LucidePencil,
                   onClick: () => {
                     scc.tabs.openBuiltinSchema({
                       schemaName: item?.schemaName ?? currentSchemaName,
@@ -219,8 +224,10 @@ export default function SchemaList({ search }: Readonly<SchemaListProps>) {
         isTable && selectedName
           ? {
               title: "Export Table",
-              sub: exportFormats.map(({ title, format }) => ({
+              icon: LucideDownload,
+              sub: exportFormats.map(({ title, format, icon }) => ({
                 title,
+                icon,
                 onClick: async () => {
                   const handler = exportTableData(
                     databaseDriver,
@@ -239,6 +246,7 @@ export default function SchemaList({ search }: Readonly<SchemaListProps>) {
         createMenuSection,
         {
           title: "Copy Name",
+          icon: LucideClipboardCopy,
           disabled: !selectedName,
           onClick: () => {
             window.navigator.clipboard.writeText(selectedName ?? "");
@@ -252,10 +260,65 @@ export default function SchemaList({ search }: Readonly<SchemaListProps>) {
         ...modificationSection,
         modificationSection.length > 0 ? { separator: true } : undefined,
 
-        { title: "Refresh", onClick: () => refresh() },
+        // Destructive section
+        isTable && selectedName
+          ? { separator: true }
+          : undefined,
+        isTable && selectedName
+          ? {
+              title: "Truncate Table",
+              destructive: true,
+              icon: LucideEraser,
+              onClick: () => {
+                showDialog({
+                  title: "Truncate Table",
+                  content: `All rows in "${selectedName}" will be permanently deleted. This cannot be undone.`,
+                  destructive: true,
+                  actions: [
+                    {
+                      text: "Truncate",
+                      onClick: async () => {
+                        await databaseDriver.query(
+                          `DELETE FROM ${databaseDriver.escapeId(selectedName)}`
+                        );
+                      },
+                      onComplete: () => refresh(),
+                    },
+                  ],
+                });
+              },
+            }
+          : undefined,
+        isTable && selectedName
+          ? {
+              title: "Drop Table",
+              destructive: true,
+              icon: LucideTrash,
+              onClick: () => {
+                showDialog({
+                  title: "Drop Table",
+                  content: `Table "${selectedName}" and all its data will be permanently dropped. This cannot be undone.`,
+                  destructive: true,
+                  actions: [
+                    {
+                      text: "Drop",
+                      onClick: async () => {
+                        await databaseDriver.query(
+                          `DROP TABLE ${databaseDriver.escapeId(selectedName)}`
+                        );
+                      },
+                      onComplete: () => refresh(),
+                    },
+                  ],
+                });
+              },
+            }
+          : undefined,
+
+        { title: "Refresh", icon: LucideRefreshCw, onClick: () => refresh() },
       ].filter(Boolean) as OpenContextMenuList;
     },
-    [refresh, databaseDriver, currentSchemaName, extensions, exportFormats]
+    [refresh, databaseDriver, currentSchemaName, extensions, exportFormats, showDialog]
   );
 
   const listViewItems = useMemo(() => {

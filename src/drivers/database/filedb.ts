@@ -1,10 +1,18 @@
 import type { DatabaseResultSet, QueryableBaseDriver } from "@/drivers/base-driver";
 import { SqliteLikeBaseDriver } from "@/drivers/sqlite-base-driver";
 
+const WRITE_PATTERN =
+  /^\s*(INSERT|UPDATE|DELETE|DROP|ALTER|CREATE|ATTACH|DETACH|PRAGMA\s+\w+\s*=)/i;
+
 class FilebDbQueryable implements QueryableBaseDriver {
   constructor(private dbName: string) {}
 
   async query(stmt: string): Promise<DatabaseResultSet> {
+    // Route write / DDL statements through the exec endpoint
+    if (WRITE_PATTERN.test(stmt)) {
+      return this.exec(stmt);
+    }
+
     const res = await fetch(`/api/db/${encodeURIComponent(this.dbName)}/query`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
