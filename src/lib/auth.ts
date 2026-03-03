@@ -22,6 +22,11 @@ function isPrivateIP(ip: string): boolean {
   // Strip IPv6-mapped IPv4 prefix (::ffff:x.x.x.x)
   const addr = ip.replace(/^::ffff:/, "").trim();
   if (addr === "127.0.0.1" || addr === "::1" || addr === "localhost") return true;
+
+  // Railway private network uses fd12::/7 IPv6 ULA addresses
+  if (/^fd[0-9a-f]{2}:/i.test(addr)) return true;
+
+  // RFC1918 IPv4 private ranges
   const parts = addr.split(".").map(Number);
   if (parts.length !== 4 || parts.some(isNaN)) return false;
   const [a, b] = parts;

@@ -18,8 +18,7 @@ WORKDIR /app
 
 ENV NODE_ENV=production
 ENV HOSTNAME="0.0.0.0"
-# PORT is injected by Railway at runtime; default to 3000 for local Docker runs
-ENV PORT=3000
+# PORT is injected by Railway at runtime
 
 # Pre-create the data directory (overridden by Railway volume at runtime)
 RUN mkdir -p /data
@@ -34,6 +33,6 @@ COPY --from=builder /app/node_modules/better-sqlite3 ./node_modules/better-sqlit
 COPY --from=builder /app/node_modules/bindings ./node_modules/bindings
 COPY --from=builder /app/node_modules/file-uri-to-path ./node_modules/file-uri-to-path
 
-EXPOSE 3000
+EXPOSE 8080
 
 CMD ["node", "server.js"]
