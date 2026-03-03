@@ -35,4 +35,4 @@ COPY --from=builder /app/node_modules/file-uri-to-path ./node_modules/file-uri-t
 
 EXPOSE 8080
 
-CMD ["node", "server.js"]
+CMD ["sh", "-c", "node server.js -p $PORT -H 0.0.0.0"]
