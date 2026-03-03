@@ -73,6 +73,26 @@ const active = await db.count("users", { active: 1 });
 // Exists check
 const exists = await db.exists("users", { email: "alice@example.com" });
 
+// Upsert — INSERT OR REPLACE (relies on PRIMARY KEY / UNIQUE constraints)
+await db.upsert("users", { id: 1, email: "alice@example.com", name: "Alice" });
+
+// Upsert — explicit conflict target
+await db.upsert(
+  "users",
+  { email: "alice@example.com", name: "Alice" },
+  { conflictColumns: ["email"] }
+);
+
+// Bulk upsert
+await db.upsertMany(
+  "users",
+  [
+    { email: "alice@example.com", name: "Alice" },
+    { email: "bob@example.com",   name: "Bob"   },
+  ],
+  { conflictColumns: ["email"] }
+);
+
 // Update
 await db.update("users", { name: "Alice Smith" }, { id: 1 });
 
@@ -167,6 +187,46 @@ await db.insertMany("posts", [
   { title: "Post 2", body: "..." },
 ]);
 ```
+
+#### `db.upsert(table, data, options?)` → `ExecResult`
+
+Insert a row or update it on conflict.
+
+```ts
+// INSERT OR REPLACE — relies on PRIMARY KEY / UNIQUE constraints
+await db.upsert("users", { id: 1, email: "alice@example.com", name: "Alice" });
+
+// INSERT … ON CONFLICT(email) DO UPDATE SET name = excluded.name
+await db.upsert(
+  "users",
+  { email: "alice@example.com", name: "Alice" },
+  { conflictColumns: ["email"] }
+);
+```
+
+#### `db.upsertMany(table, rows, options?)` → `ExecResult`
+
+Bulk version of `upsert`.
+
+```ts
+await db.upsertMany(
+  "users",
+  [
+    { email: "alice@example.com", name: "Alice" },
+    { email: "bob@example.com",   name: "Bob"   },
+  ],
+  { conflictColumns: ["email"] }
+);
+```
+
+**`UpsertOptions` fields:**
+
+| Field              | Type       | Description                                                                                                     |
+| ------------------ | ---------- | --------------------------------------------------------------------------------------------------------------- |
+| `conflictColumns`  | `string[]` | Conflict-target columns. Omit to use `INSERT OR REPLACE` (relies on PRIMARY KEY / UNIQUE). |
+| `updateColumns`    | `string[]` | Columns to overwrite on conflict. Defaults to all columns **not** in `conflictColumns`. Pass `[]` for DO NOTHING. |
+
+---
 
 #### `db.update(table, data, where)` → `ExecResult`
 

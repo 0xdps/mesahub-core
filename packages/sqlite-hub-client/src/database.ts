@@ -33,6 +33,22 @@ export interface CreateIndexOptions {
   ifNotExists?: boolean;
 }
 
+export interface UpsertOptions {
+  /**
+   * Column(s) that form the conflict target.
+   * When provided the statement becomes:
+   *   INSERT INTO … ON CONFLICT(col1, col2) DO UPDATE SET …
+   * When omitted `INSERT OR REPLACE` is used instead (relies on the
+   * table's PRIMARY KEY / UNIQUE constraints).
+   */
+  conflictColumns?: string[];
+  /**
+   * Columns to update on conflict.
+   * Defaults to all columns that are NOT in `conflictColumns`.
+   */
+  updateColumns?: string[];
+}
+
 // ── SQL builder helpers ─────────────────────────────────────────────────────
 
 function buildWhere(
@@ -175,6 +191,81 @@ export class Database {
     const bindings = rows.flatMap((row) => keys.map((k) => row[k]));
     return this._write(
       `INSERT INTO "${table}" (${cols}) VALUES ${rowPlaceholders}`,
+      bindings
+    );
+  }
+
+  /**
+   * Upsert a single row — insert or update on conflict.
+   *
+   * Without `conflictColumns` the statement uses `INSERT OR REPLACE` which
+   * relies on the table's PRIMARY KEY / UNIQUE constraints.
+   *
+   * With `conflictColumns` it uses the more precise:
+   *   `INSERT … ON CONFLICT(cols) DO UPDATE SET …`
+   *
+   * @example
+   * // relies on PRIMARY KEY / UNIQUE constraints
+   * await db.upsert("users", { id: 1, email: "a@b.com", name: "Alice" });
+   *
+   * // explicit conflict target
+   * await db.upsert("users", { email: "a@b.com", name: "Alice" }, { conflictColumns: ["email"] });
+   */
+  async upsert(
+    table: string,
+    data: Record<string, unknown>,
+    options: UpsertOptions = {}
+  ): Promise<ExecResult> {
+    return this.upsertMany(table, [data], options);
+  }
+
+  /**
+   * Upsert multiple rows — insert or update each row on conflict.
+   *
+   * @example
+   * await db.upsertMany(
+   *   "users",
+   *   [
+   *     { email: "a@b.com", name: "Alice" },
+   *     { email: "b@c.com", name: "Bob" },
+   *   ],
+   *   { conflictColumns: ["email"] }
+   * );
+   */
+  async upsertMany(
+    table: string,
+    rows: Record<string, unknown>[],
+    options: UpsertOptions = {}
+  ): Promise<ExecResult> {
+    if (rows.length === 0) return { rowsAffected: 0, lastInsertRowid: null };
+    const keys = Object.keys(rows[0]);
+    const cols = keys.map((k) => `"${k}"`).join(", ");
+    const rowPlaceholders = rows
+      .map(() => `(${keys.map(() => "?").join(", ")})`)
+      .join(", ");
+    const bindings = rows.flatMap((row) => keys.map((k) => row[k]));
+
+    if (options.conflictColumns && options.conflictColumns.length > 0) {
+      const conflictCols = options.conflictColumns
+        .map((c) => `"${c}"`)
+        .join(", ");
+      const updateCols =
+        options.updateColumns ??
+        keys.filter((k) => !options.conflictColumns!.includes(k));
+      const conflictClause =
+        updateCols.length === 0
+          ? `ON CONFLICT(${conflictCols}) DO NOTHING`
+          : `ON CONFLICT(${conflictCols}) DO UPDATE SET ${updateCols
+              .map((k) => `"${k}" = excluded."${k}"`)
+              .join(", ")}`;
+      return this._write(
+        `INSERT INTO "${table}" (${cols}) VALUES ${rowPlaceholders} ${conflictClause}`,
+        bindings
+      );
+    }
+
+    return this._write(
+      `INSERT OR REPLACE INTO "${table}" (${cols}) VALUES ${rowPlaceholders}`,
       bindings
     );
   }

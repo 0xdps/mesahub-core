@@ -1,6 +1,6 @@
 export { Database } from "./database.js";
 export type {
-  ColumnDef, CreateIndexOptions, CreateTableOptions, FindOptions, OrderDirection, WhereClause
+  ColumnDef, CreateIndexOptions, CreateTableOptions, FindOptions, OrderDirection, UpsertOptions, WhereClause
 } from "./database.js";
 
 export { HttpAdapter } from "./adapters/http.js";

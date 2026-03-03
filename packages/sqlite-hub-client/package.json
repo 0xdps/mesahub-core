@@ -1,6 +1,6 @@
 {
   "name": "sqlite-hub-client",
-  "version": "0.6.0",
+  "version": "0.7.0",
   "description": "High-level SQLite client for sqlite-hub — HTTP adapter included, direct SQLite coming soon",
   "type": "module",
   "main": "dist/index.js",
