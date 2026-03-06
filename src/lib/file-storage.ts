@@ -32,6 +32,7 @@ export interface StoredFileRecord {
   db_name: string;
   content_hash: string;
   filename: string;
+  folder_path: string;
   content_type: string | null;
   size_bytes: number;
   storage_path: string;
@@ -43,6 +44,8 @@ export interface StoredFileRecord {
 export interface UploadInput {
   dbName: string;
   filename: string;
+  folderPath?: string;
+  conflictMode?: "replace" | "error";
   contentType: string | null;
   bytes: Buffer;
   expiresAt: string | null;
@@ -52,6 +55,7 @@ export interface UploadInput {
 export interface UploadResult {
   id: string;
   filename: string;
+  folderPath: string;
   contentType: string | null;
   sizeBytes: number;
   contentHash: string;
@@ -82,6 +86,18 @@ export class FileStorageError extends Error {
   }
 }
 
+function getDefaultConflictMode(): "replace" | "error" {
+  const raw = (process.env.FILE_UPLOAD_CONFLICT_MODE ?? "replace").trim().toLowerCase();
+  return raw === "error" ? "error" : "replace";
+}
+
+function normalizeConflictMode(input: string | undefined): "replace" | "error" {
+  if (!input) return getDefaultConflictMode();
+  const value = input.trim().toLowerCase();
+  if (value === "replace" || value === "error") return value;
+  throw new FileStorageError("conflict_mode must be 'replace' or 'error'", 400);
+}
+
 function ensureFileStorageDirs(): void {
   fs.mkdirSync(BLOBS_ROOT, { recursive: true });
 }
@@ -99,6 +115,7 @@ function getFileDb(): Database.Database {
       db_name      TEXT NOT NULL,
       content_hash TEXT NOT NULL,
       filename     TEXT NOT NULL,
+      folder_path  TEXT NOT NULL DEFAULT '',
       content_type TEXT,
       size_bytes   INTEGER NOT NULL,
       storage_path TEXT NOT NULL,
@@ -110,6 +127,7 @@ function getFileDb(): Database.Database {
     CREATE INDEX IF NOT EXISTS idx_files_db_name ON files(db_name);
     CREATE INDEX IF NOT EXISTS idx_files_content_hash ON files(content_hash);
     CREATE INDEX IF NOT EXISTS idx_files_expires_at ON files(expires_at);
+    CREATE INDEX IF NOT EXISTS idx_files_db_folder ON files(db_name, folder_path);
 
     CREATE TABLE IF NOT EXISTS blob_refs (
       content_hash TEXT PRIMARY KEY,
@@ -117,6 +135,16 @@ function getFileDb(): Database.Database {
       first_seen   DATETIME DEFAULT CURRENT_TIMESTAMP
     );
   `);
+
+  const columns = _fileDb
+    .prepare("PRAGMA table_info(files)")
+    .all() as { name: string }[];
+
+  if (!columns.some((c) => c.name === "folder_path")) {
+    _fileDb.exec("ALTER TABLE files ADD COLUMN folder_path TEXT NOT NULL DEFAULT ''");
+  }
+
+  _fileDb.exec("CREATE INDEX IF NOT EXISTS idx_files_db_folder ON files(db_name, folder_path)");
 
   return _fileDb;
 }
@@ -126,6 +154,35 @@ function normalizeFilename(input: string): string {
   if (!base) return "file";
   const compact = base.replace(/[\r\n\t]/g, " ").replace(/\s+/g, " ");
   return compact.slice(0, LIMITS.maxFilenameLength);
+}
+
+function normalizeFolderPath(input: string | undefined): string {
+  if (!input) return "";
+
+  const value = input
+    .trim()
+    .replace(/\\/g, "/")
+    .replace(/\/+/g, "/")
+    .replace(/^\/+/, "")
+    .replace(/\/+$/, "");
+
+  if (!value) return "";
+
+  const segments = value
+    .split("/")
+    .map((segment) => segment.trim())
+    .filter(Boolean);
+
+  if (segments.some((segment) => segment === "." || segment === "..")) {
+    throw new FileStorageError("folder_path cannot contain relative segments", 400);
+  }
+
+  const normalized = segments.join("/");
+  if (normalized.length > 512) {
+    throw new FileStorageError("folder_path is too long (max 512 chars)", 400);
+  }
+
+  return normalized;
 }
 
 function metadataToString(metadata: Record<string, unknown> | null): string | null {
@@ -161,6 +218,20 @@ function computeContentHash(bytes: Buffer): string {
   return hash.digest("hex");
 }
 
+function getFileByLogicalPath(dbName: string, folderPath: string, filename: string): StoredFileRecord | null {
+  const db = getFileDb();
+  return (
+    (db
+      .prepare(
+        `SELECT * FROM files
+         WHERE db_name = ? AND folder_path = ? AND filename = ?
+         ORDER BY uploaded_at DESC, id DESC
+         LIMIT 1`
+      )
+      .get(dbName, folderPath, filename) as StoredFileRecord) ?? null
+  );
+}
+
 function requireWithinLimits(dbName: string, fileSize: number): void {
   if (fileSize <= 0) {
     throw new FileStorageError("file is empty", 400);
@@ -187,6 +258,8 @@ function requireWithinLimits(dbName: string, fileSize: number): void {
 
 export function uploadFile(input: UploadInput): UploadResult {
   const filename = normalizeFilename(input.filename);
+  const folderPath = normalizeFolderPath(input.folderPath);
+  const conflictMode = normalizeConflictMode(input.conflictMode);
   const contentType = input.contentType?.trim() || null;
 
   if (!isMimeAllowed(contentType)) {
@@ -199,9 +272,75 @@ export function uploadFile(input: UploadInput): UploadResult {
   const storagePath = getStoragePathForHash(contentHash);
   const metadata = metadataToString(input.metadata);
   const db = getFileDb();
+  const existing = getFileByLogicalPath(input.dbName, folderPath, filename);
+
+  if (existing && conflictMode === "error") {
+    throw new FileStorageError("file already exists in this folder", 409);
+  }
 
   if (!fs.existsSync(storagePath)) {
     fs.writeFileSync(storagePath, input.bytes);
+  }
+
+  let shouldDeleteOldBlob = false;
+  let oldBlobPathToDelete: string | null = null;
+
+  if (existing) {
+    const tx = db.transaction(() => {
+      if (existing.content_hash !== contentHash) {
+        const newRef = db
+          .prepare("SELECT ref_count FROM blob_refs WHERE content_hash = ?")
+          .get(contentHash) as { ref_count: number } | undefined;
+
+        if (newRef) {
+          db.prepare("UPDATE blob_refs SET ref_count = ref_count + 1 WHERE content_hash = ?").run(contentHash);
+        } else {
+          db.prepare("INSERT INTO blob_refs (content_hash, ref_count) VALUES (?, 1)").run(contentHash);
+        }
+
+        const oldRef = db
+          .prepare("SELECT ref_count FROM blob_refs WHERE content_hash = ?")
+          .get(existing.content_hash) as { ref_count: number } | undefined;
+
+        if (!oldRef || oldRef.ref_count <= 1) {
+          db.prepare("DELETE FROM blob_refs WHERE content_hash = ?").run(existing.content_hash);
+          shouldDeleteOldBlob = true;
+          oldBlobPathToDelete = existing.storage_path;
+        } else {
+          db.prepare("UPDATE blob_refs SET ref_count = ref_count - 1 WHERE content_hash = ?").run(existing.content_hash);
+        }
+      }
+
+      db.prepare(
+        `UPDATE files
+         SET content_hash = ?,
+             content_type = ?,
+             size_bytes = ?,
+             storage_path = ?,
+             uploaded_at = CURRENT_TIMESTAMP,
+             expires_at = ?,
+             metadata = ?
+         WHERE id = ?`
+      ).run(contentHash, contentType, input.bytes.length, storagePath, input.expiresAt, metadata, existing.id);
+    });
+
+    tx();
+
+    if (shouldDeleteOldBlob && oldBlobPathToDelete && fs.existsSync(oldBlobPathToDelete)) {
+      fs.unlinkSync(oldBlobPathToDelete);
+    }
+
+    const row = db.prepare("SELECT * FROM files WHERE id = ?").get(existing.id) as StoredFileRecord;
+    return {
+      id: row.id,
+      filename: row.filename,
+      folderPath: row.folder_path,
+      contentType: row.content_type,
+      sizeBytes: row.size_bytes,
+      contentHash: row.content_hash,
+      uploadedAt: row.uploaded_at,
+      expiresAt: row.expires_at,
+    };
   }
 
   const id = randomUUID();
@@ -217,9 +356,20 @@ export function uploadFile(input: UploadInput): UploadResult {
     }
 
     db.prepare(
-      `INSERT INTO files (id, db_name, content_hash, filename, content_type, size_bytes, storage_path, expires_at, metadata)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`
-    ).run(id, input.dbName, contentHash, filename, contentType, input.bytes.length, storagePath, input.expiresAt, metadata);
+      `INSERT INTO files (id, db_name, content_hash, filename, folder_path, content_type, size_bytes, storage_path, expires_at, metadata)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+    ).run(
+      id,
+      input.dbName,
+      contentHash,
+      filename,
+      folderPath,
+      contentType,
+      input.bytes.length,
+      storagePath,
+      input.expiresAt,
+      metadata
+    );
   });
 
   tx();
@@ -228,6 +378,7 @@ export function uploadFile(input: UploadInput): UploadResult {
   return {
     id: row.id,
     filename: row.filename,
+    folderPath: row.folder_path,
     contentType: row.content_type,
     sizeBytes: row.size_bytes,
     contentHash: row.content_hash,
@@ -236,18 +387,59 @@ export function uploadFile(input: UploadInput): UploadResult {
   };
 }
 
-export function listFiles(dbName: string, options: { limit: number; offset: number; sort: string; order: "asc" | "desc" }): ListFilesResult {
+function escapeSqlLike(value: string): string {
+  return value.replace(/[\\%_]/g, (char) => `\\${char}`);
+}
+
+export function listFiles(
+  dbName: string,
+  options: { limit: number; offset: number; sort: string; order: "asc" | "desc"; folderPrefix?: string }
+): ListFilesResult {
   const db = getFileDb();
-  const safeSort = ["uploaded_at", "size_bytes", "filename"].includes(options.sort) ? options.sort : "uploaded_at";
+  const safeSort = ["uploaded_at", "size_bytes", "filename", "folder_path"].includes(options.sort)
+    ? options.sort
+    : "uploaded_at";
   const safeOrder = options.order === "asc" ? "ASC" : "DESC";
+  const folderPrefix = normalizeFolderPath(options.folderPrefix);
+
+  if (!folderPrefix) {
+    const files = db
+      .prepare(
+        `SELECT * FROM files WHERE db_name = ? ORDER BY ${safeSort} ${safeOrder} LIMIT ? OFFSET ?`
+      )
+      .all(dbName, options.limit, options.offset) as StoredFileRecord[];
+
+    const totalRow = db
+      .prepare("SELECT COUNT(*) as count FROM files WHERE db_name = ?")
+      .get(dbName) as { count: number };
+
+    return {
+      files,
+      total: totalRow.count,
+      offset: options.offset,
+      limit: options.limit,
+    };
+  }
+
+  const likePrefix = `${escapeSqlLike(folderPrefix)}/%`;
 
   const files = db
     .prepare(
-      `SELECT * FROM files WHERE db_name = ? ORDER BY ${safeSort} ${safeOrder} LIMIT ? OFFSET ?`
+      `SELECT * FROM files
+       WHERE db_name = ?
+         AND (folder_path = ? OR folder_path LIKE ? ESCAPE '\\')
+       ORDER BY ${safeSort} ${safeOrder}
+       LIMIT ? OFFSET ?`
     )
-    .all(dbName, options.limit, options.offset) as StoredFileRecord[];
+    .all(dbName, folderPrefix, likePrefix, options.limit, options.offset) as StoredFileRecord[];
 
-  const totalRow = db.prepare("SELECT COUNT(*) as count FROM files WHERE db_name = ?").get(dbName) as { count: number };
+  const totalRow = db
+    .prepare(
+      `SELECT COUNT(*) as count FROM files
+       WHERE db_name = ?
+         AND (folder_path = ? OR folder_path LIKE ? ESCAPE '\\')`
+    )
+    .get(dbName, folderPrefix, likePrefix) as { count: number };
 
   return {
     files,

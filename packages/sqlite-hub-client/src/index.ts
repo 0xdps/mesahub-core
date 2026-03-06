@@ -2,6 +2,20 @@ export { Database } from "./database.js";
 export type {
   ColumnDef, CreateIndexOptions, CreateTableOptions, FindOptions, OrderDirection, UpsertOptions, WhereClause
 } from "./database.js";
+export {
+  FileClient,
+} from "./files.js";
+export type {
+  BulkDeleteFilesResponse,
+  FileListOptions,
+  FileListResponse,
+  FileMetaResponse,
+  PresignFileOptions,
+  PresignFileResponse,
+  StoredFile,
+  UploadFileInput,
+  UploadFileResponse,
+} from "./files.js";
 
 export { HttpAdapter } from "./adapters/http.js";
 export type { HttpAdapterOptions } from "./adapters/http.js";
@@ -13,6 +27,7 @@ export type {
 
 import { HttpAdapter, type HttpAdapterOptions } from "./adapters/http.js";
 import { Database } from "./database.js";
+import { FileClient } from "./files.js";
 
 /**
  * Create a Database connected to a sqlite-hub service over HTTP.
@@ -25,7 +40,7 @@ import { Database } from "./database.js";
  * });
  */
 export function connect(options: HttpAdapterOptions): Database {
-  return new Database(new HttpAdapter(options));
+  return new Database(new HttpAdapter(options), new FileClient(options));
 }
 
 export default connect;

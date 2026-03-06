@@ -73,6 +73,16 @@ Queries:
 
 - `POST /api/db/:name/query` execute read-only SQL
 
+Files:
+
+- `GET /api/db/:name/files` list files for a database
+- `POST /api/db/:name/files` upload a file
+- `GET /api/db/:name/files/:id` download/stream a file
+- `GET /api/db/:name/files/:id/meta` read file metadata
+- `POST /api/db/:name/files/:id/presign` create a browser-safe signed URL
+- `DELETE /api/db/:name/files/:id` delete a file
+- `POST /api/db/:name/files/bulk-delete` delete many files
+
 System:
 
 - `GET /api/health` service health
@@ -83,6 +93,7 @@ All API routes except `/api/health` require admin authentication.
 ## Documentation
 
 - [docs/DEVELOPMENT.md](./docs/DEVELOPMENT.md) - full development and operations guide
+- [docs/FILE_STORAGE.md](./docs/FILE_STORAGE.md) - file upload/download API, limits, and storage model
 - [docs/PRD.md](./docs/PRD.md) - product requirements
 - [docs/TECH.md](./docs/TECH.md) - implementation reference
 

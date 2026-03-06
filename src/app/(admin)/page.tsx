@@ -112,6 +112,12 @@ export default function DashboardPage() {
                         Settings
                       </Link>
                       <Link
+                        href={`/db/${db.name}/files`}
+                        className="text-xs text-emerald-400 hover:text-emerald-300"
+                      >
+                        Files
+                      </Link>
+                      <Link
                         href={`/db/${db.name}`}
                         className="text-xs text-blue-400 hover:text-blue-300"
                       >

@@ -151,9 +151,17 @@ export default function DbSettingsPage({
 
         {/* Header */}
         <div className="mb-8">
-          <Link href="/" className="text-sm text-neutral-400 hover:text-white">
-            ← Back to dashboard
-          </Link>
+          <div className="flex items-center gap-4 text-sm">
+            <Link href="/" className="text-neutral-400 hover:text-white">
+              ← Back to dashboard
+            </Link>
+            <Link href={`/db/${name}/files`} className="text-emerald-400 hover:text-emerald-300">
+              Files
+            </Link>
+            <Link href={`/db/${name}`} className="text-blue-400 hover:text-blue-300">
+              Browse
+            </Link>
+          </div>
           <h1 className="text-xl font-semibold mt-3">
             Settings —{" "}
             <span className="font-mono">{db.name}</span>

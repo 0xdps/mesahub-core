@@ -5,7 +5,7 @@ import { NextRequest, NextResponse } from "next/server";
 const PUBLIC_PREFIXES = ["/login", "/api/health", "/api/auth"];
 
 // These routes enforce their own per-DB auth (service secret / internal IP)
-const DB_SCOPED_PATTERN = /^\/api\/db\/[^/]+(\/exec|\/query)$/;
+const DB_SCOPED_PATTERN = /^\/api\/db\/[^/]+(?:\/.*)?$/;
 
 // Trusted internal header stamped by middleware after session verification.
 // Stripped from all incoming requests to prevent external forgery.

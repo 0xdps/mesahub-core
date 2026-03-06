@@ -1,4 +1,5 @@
 import { authorizeDbRequest } from "@/lib/auth";
+import { authorizeFileAccessToken } from "@/lib/file-access-token";
 import { getFileById, isFileExpired } from "@/lib/file-storage";
 import { getDatabase } from "@/lib/registry";
 import { NextResponse } from "next/server";
@@ -15,8 +16,11 @@ export async function GET(req: Request, { params }: Params) {
   const record = getDatabase(name);
   if (!record) return NextResponse.json({ error: "Database not found" }, { status: 404 });
 
-  const authError = authorizeDbRequest(req, record);
-  if (authError) return authError;
+  const hasTokenAccess = authorizeFileAccessToken(req, name);
+  if (!hasTokenAccess) {
+    const authError = authorizeDbRequest(req, record);
+    if (authError) return authError;
+  }
 
   const file = getFileById(name, id);
   if (!file) return NextResponse.json({ error: "File not found" }, { status: 404 });
@@ -25,6 +29,7 @@ export async function GET(req: Request, { params }: Params) {
   return NextResponse.json({
     id: file.id,
     filename: file.filename,
+    folder_path: file.folder_path,
     content_type: file.content_type,
     size_bytes: file.size_bytes,
     uploaded_at: file.uploaded_at,

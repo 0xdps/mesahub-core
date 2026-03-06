@@ -20,6 +20,25 @@ const db = connect({
   db:    "my-service",
 });
 
+// File upload
+const uploaded = await db.files!.upload({
+  file: new Blob(["hello world"], { type: "text/plain" }),
+  filename: "hello.txt",
+  folderPath: "docs/examples",
+  metadata: { source: "docs" },
+});
+
+// File list
+const filePage = await db.files!.list({
+  limit: 20,
+  offset: 0,
+  folderPrefix: "docs",
+});
+
+// Presigned browser URL (for third-party dashboards)
+const signed = await db.files!.presign(uploaded.id, { expiresIn: 1800 });
+console.log(signed.url);
+
 // Create table
 await db.createTable("users", [
   { name: "id", type: "INTEGER", primaryKey: true, autoIncrement: true },
@@ -302,6 +321,117 @@ const result = await db.exec<{ n: number }>("SELECT COUNT(*) AS n FROM posts");
 
 // DDL / DML → ExecResult
 await db.exec("CREATE INDEX IF NOT EXISTS idx_title ON posts (title)");
+```
+
+---
+
+### Files
+
+#### `db.files.upload(input)`
+
+```ts
+const uploaded = await db.files!.upload({
+  file: new Blob(["report"], { type: "text/plain" }),
+  filename: "report.txt",
+  folderPath: "ops/reports",
+  conflictMode: "replace", // or "error"
+  contentType: "text/plain",
+  metadata: { owner: "ops" },
+  expiresIn: 3600,
+});
+```
+
+#### `db.files.list(options?)`
+
+```ts
+const files = await db.files!.list({
+  limit: 50,
+  offset: 0,
+  sort: "uploaded_at",
+  order: "desc",
+  folderPrefix: "ops",
+});
+```
+
+#### `db.files.getMeta(fileId)`
+
+```ts
+const meta = await db.files!.getMeta("file-id");
+```
+
+#### `db.files.delete(fileId)`
+
+```ts
+await db.files!.delete("file-id");
+```
+
+#### `db.files.bulkDelete(fileIds)`
+
+```ts
+await db.files!.bulkDelete(["id1", "id2"]);
+```
+
+#### `db.files.presign(fileId, options?)`
+
+Returns a signed URL that can be opened directly in browser without bearer token.
+
+```ts
+const signed = await db.files!.presign("file-id", {
+  expiresIn: 900,
+  disposition: "inline", // or "attachment"
+});
+
+// e.g. embed in dashboard iframe/image link
+console.log(signed.url);
+```
+
+#### `db.files.batchPresign(options)`
+
+Generate presigned URLs for multiple files at once. Maximum 100 file IDs per request.
+
+```ts
+const batch = await db.files!.batchPresign({
+  fileIds: ["id1", "id2", "id3"],
+  expiresIn: 900,
+  disposition: "inline",
+});
+
+// Check results
+batch.results.forEach((result) => {
+  if (result.error) {
+    console.error(`Failed for ${result.file_id}: ${result.error}`);
+  } else {
+    console.log(`URL for ${result.file_id}: ${result.url}`);
+  }
+});
+```
+
+#### `db.files.createFileAccessToken(options?)`
+
+Creates a long-lived access token for file operations. Unlike presigned URLs which are per-file, this token works for all file operations on the database.
+
+```ts
+const tokenData = await db.files!.createFileAccessToken({
+  scope: "files:read",
+  expiresIn: 2592000, // 30 days
+  description: "Dashboard access",
+});
+
+// Use in query parameter or Authorization header
+const fileUrl = `https://host/api/db/mydb/files/file-id?token=${tokenData.token}`;
+
+// Or with Authorization header:
+// Authorization: Bearer <token>
+```
+
+The token is stateless and cannot be revoked before expiry. Default TTL is 30 days, maximum is 1 year.
+
+#### `db.files.getDownloadUrl(fileId)`
+
+Returns the authenticated endpoint URL (requires bearer auth unless using presigned query).
+
+```ts
+const url = db.files!.getDownloadUrl("file-id");
 ```
 
 ---

@@ -1,4 +1,5 @@
 import type { ExecResult, IAdapter, QueryResult, RawResult } from "./adapters/types.js";
+import type { FileClient } from "./files.js";
 
 // ── Helper types ────────────────────────────────────────────────────────────
 
@@ -81,7 +82,11 @@ function isExecResult(r: RawResult | null | undefined): r is ExecResult {
  * SQLite (via better-sqlite3 or sql.js) without changing business code.
  */
 export class Database {
-  constructor(private readonly adapter: IAdapter) {}
+  readonly files?: FileClient;
+
+  constructor(private readonly adapter: IAdapter, filesClient?: FileClient) {
+    this.files = filesClient;
+  }
 
   // ── Schema ──────────────────────────────────────────────────────────────
 

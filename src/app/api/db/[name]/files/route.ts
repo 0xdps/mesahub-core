@@ -1,4 +1,5 @@
 import { authorizeDbRequest } from "@/lib/auth";
+import { authorizeFileAccessToken } from "@/lib/file-access-token";
 import { FileStorageError, listFiles, uploadFile } from "@/lib/file-storage";
 import { logger } from "@/lib/logger";
 import { getDatabase } from "@/lib/registry";
@@ -17,17 +18,28 @@ export async function GET(req: Request, { params }: Params) {
     return NextResponse.json({ error: "Database not found" }, { status: 404 });
   }
 
-  const authError = authorizeDbRequest(req, record);
-  if (authError) return authError;
+  const hasTokenAccess = authorizeFileAccessToken(req, name);
+  if (!hasTokenAccess) {
+    const authError = authorizeDbRequest(req, record);
+    if (authError) return authError;
+  }
 
   const url = new URL(req.url);
   const limit = Math.min(Math.max(Number.parseInt(url.searchParams.get("limit") ?? "100", 10) || 100, 1), 1000);
   const offset = Math.max(Number.parseInt(url.searchParams.get("offset") ?? "0", 10) || 0, 0);
   const sort = url.searchParams.get("sort") ?? "uploaded_at";
   const order = (url.searchParams.get("order") ?? "desc").toLowerCase() === "asc" ? "asc" : "desc";
+  const folderPrefix = url.searchParams.get("folder_prefix") ?? undefined;
 
-  const result = listFiles(name, { limit, offset, sort, order });
-  return NextResponse.json(result);
+  try {
+    const result = listFiles(name, { limit, offset, sort, order, folderPrefix });
+    return NextResponse.json(result);
+  } catch (error) {
+    if (error instanceof FileStorageError) {
+      return NextResponse.json({ error: error.message }, { status: error.status });
+    }
+    throw error;
+  }
 }
 
 export async function POST(req: Request, { params }: Params) {
@@ -54,6 +66,9 @@ export async function POST(req: Request, { params }: Params) {
     const filename = String(formData.get("filename") ?? fileValue.name ?? "file");
     const contentTypeRaw = String(formData.get("content_type") ?? fileValue.type ?? "").trim();
     const contentType = contentTypeRaw || null;
+    const folderPath = String(formData.get("folder_path") ?? "");
+    const conflictModeRaw = String(formData.get("conflict_mode") ?? "").trim();
+    const conflictMode = conflictModeRaw || undefined;
 
     const metadataRaw = formData.get("metadata");
     let metadata: Record<string, unknown> | null = null;
@@ -80,6 +95,8 @@ export async function POST(req: Request, { params }: Params) {
     const result = uploadFile({
       dbName: name,
       filename,
+      folderPath,
+      conflictMode,
       contentType,
       bytes,
       expiresAt,
@@ -90,6 +107,7 @@ export async function POST(req: Request, { params }: Params) {
       {
         id: result.id,
         filename: result.filename,
+        folder_path: result.folderPath,
         size_bytes: result.sizeBytes,
         content_type: result.contentType,
         url: `/api/db/${encodeURIComponent(name)}/files/${result.id}`,
