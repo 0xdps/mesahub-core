@@ -324,14 +324,14 @@ npm install
 # Copy env
 cp .env.example .env
 
-# Run Hono in dev mode (no Outerbase/Caddy needed locally)
-npm run dev
+# Run dev (Docker + Portless)
+just dev
 
-# Build
-npm run build
+# Run production-like locally on fixed port
+just prod
 ```
 
-For local dev, Outerbase and Caddy are optional. Hit Hono directly on port 3000.
+For local dev, use the dev profile in Docker and access via http://sqlite-hub.localhost:1355.
 
 ---
 

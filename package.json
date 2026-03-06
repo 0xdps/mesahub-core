@@ -7,12 +7,7 @@
     "packages/*"
   ],
   "scripts": {
-    "dev": "next dev -p 3008",
-    "start": "next start",
-    "build": "next build",
-    "typecheck": "tsc --noEmit --skipLibCheck",
-    "format": "prettier --check .",
-    "lint": "next lint"
+    "build": "next build"
   },
   "overrides": {
     "@libsql/client": "^0.5.3"
@@ -118,9 +113,11 @@
     "eslint-config-next": "14.0.4",
     "jest": "^29.7.0",
     "jest-environment-jsdom": "^29.7.0",
+    "portless": "^0.5.2",
     "postcss": "^8.4.38",
     "prettier": "^3.2.5",
     "prettier-plugin-tailwindcss": "^0.6.11",
+    "rust-just": "^1.46.0",
     "shiki": "^1.12.0",
     "showdown": "^2.1.0",
     "tailwindcss": "^4.0.0",

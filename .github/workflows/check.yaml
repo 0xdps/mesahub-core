@@ -19,14 +19,22 @@ jobs:
         with:
           node-version: 20
 
+      - name: Install just
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y just
+
       - name: Install dependencies
         run: npm install
 
-      - name: Typecheck
-        run: npm run typecheck
+      - name: Prepare env for compose validation
+        run: cp .env.example .env
 
-      - name: Build
-        run: npm run build
+      - name: Validate runtime contract
+        run: just contract
+
+      - name: Check
+        run: just check
 
       - name: Log success
         run: echo "✅ Success!"

@@ -18,7 +18,10 @@ export function getDbConnection(name: string): Database.Database {
   if (!db || !db.open) {
     db = new Database(getDbPath(name));
     db.pragma("journal_mode = WAL");
-    db.pragma("busy_timeout = 5000");
+    db.pragma("busy_timeout = 10000");
+    db.pragma("synchronous = NORMAL");
+    db.pragma("wal_autocheckpoint = 1000");
+    db.pragma("temp_store = MEMORY");
     _pool.set(name, db);
   }
   return db;
@@ -28,10 +31,22 @@ export function getReadonlyDbConnection(name: string): Database.Database {
   let db = _readonlyPool.get(name);
   if (!db || !db.open) {
     db = new Database(getDbPath(name), { readonly: true, fileMustExist: true });
-    db.pragma("busy_timeout = 5000");
+    db.pragma("busy_timeout = 10000");
     _readonlyPool.set(name, db);
   }
   return db;
+}
+
+export function runInTransaction<T>(name: string, fn: (db: Database.Database) => T): T {
+  const db = getDbConnection(name);
+  const transaction = db.transaction(() => fn(db));
+  return transaction();
+}
+
+export function runInImmediateTransaction<T>(name: string, fn: (db: Database.Database) => T): T {
+  const db = getDbConnection(name);
+  const transaction = db.transaction(() => fn(db)).immediate;
+  return transaction();
 }
 
 export function closeDbConnection(name: string): void {

@@ -2,6 +2,7 @@ import Database from "better-sqlite3";
 import fs from "fs";
 import path from "path";
 import { closeDbConnection } from "./db-pool";
+import { deleteFilesForDatabase } from "./file-storage";
 
 const DATA_PATH = process.env.DATA_PATH ?? "/data";
 
@@ -106,6 +107,9 @@ export function softDeleteDatabase(name: string): void {
   if (fs.existsSync(oldPath + "-wal")) fs.renameSync(oldPath + "-wal", newPath + "-wal");
   if (fs.existsSync(oldPath + "-shm")) fs.renameSync(oldPath + "-shm", newPath + "-shm");
 
+  // Remove files owned by this DB during soft-delete to avoid orphaned blobs.
+  deleteFilesForDatabase(name);
+
   getRegistry()
     .prepare(
       "UPDATE databases SET name = ?, original_name = ?, status = 'deleted', deleted_at = datetime('now'), service_secret = NULL WHERE name = ?"
@@ -155,6 +159,8 @@ export function hardDeleteDatabase(deletedName: string): void {
   if (fs.existsSync(dbPath)) fs.unlinkSync(dbPath);
   if (fs.existsSync(dbPath + "-wal")) fs.unlinkSync(dbPath + "-wal");
   if (fs.existsSync(dbPath + "-shm")) fs.unlinkSync(dbPath + "-shm");
+
+  deleteFilesForDatabase(deletedName);
 
   getRegistry()
     .prepare("DELETE FROM databases WHERE name = ?")
