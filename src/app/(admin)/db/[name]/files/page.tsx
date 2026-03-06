@@ -13,7 +13,6 @@ import {
   FileAudio,
   FileArchive,
   Loader2,
-  X,
   Info,
   Eye,
   Download,
@@ -42,6 +41,11 @@ interface FileListResponse {
   total: number;
   offset: number;
   limit: number;
+}
+
+interface DatabaseInfoResponse {
+  id?: number;
+  created_at?: string;
 }
 
 interface ExplorerItem {
@@ -106,10 +110,10 @@ export default function DbFilesPage({
   const { name } = use(params);
 
   const [rows, setRows] = useState<FileRow[]>([]);
-  const [total, setTotal] = useState(0);
   const [currentFolder, setCurrentFolder] = useState("");
   const [createFolderInput, setCreateFolderInput] = useState("");
   const [customFolders, setCustomFolders] = useState<string[]>([]);
+  const [dbIdentity, setDbIdentity] = useState<string>("unknown");
   const [fileInput, setFileInput] = useState<File | null>(null);
   const [uploading, setUploading] = useState(false);
   const [loading, setLoading] = useState(true);
@@ -127,9 +131,32 @@ export default function DbFilesPage({
   });
 
   const localFolderStorageKey = useMemo(
-    () => `sqlite-hub:folders:${name}`,
-    [name]
+    () => `sqlite-hub:folders:${name}:${dbIdentity}`,
+    [name, dbIdentity]
   );
+
+  useEffect(() => {
+    let cancelled = false;
+
+    async function loadDbIdentity() {
+      try {
+        const res = await fetch(`/api/db/${encodeURIComponent(name)}`, { cache: "no-store" });
+        if (!res.ok) return;
+        const data = (await res.json().catch(() => null)) as DatabaseInfoResponse | null;
+        if (!data || cancelled) return;
+
+        const identity = String(data.id ?? data.created_at ?? "unknown");
+        setDbIdentity(identity);
+      } catch {
+        // Ignore lookup failures and keep fallback identity.
+      }
+    }
+
+    loadDbIdentity();
+    return () => {
+      cancelled = true;
+    };
+  }, [name]);
 
   useEffect(() => {
     try {
@@ -175,7 +202,9 @@ export default function DbFilesPage({
     const trimmedFilter = currentFolder.trim();
     if (trimmedFilter) query.set("folder_prefix", trimmedFilter);
 
-    const res = await fetch(`/api/db/${encodeURIComponent(name)}/files?${query.toString()}`);
+    const res = await fetch(`/api/db/${encodeURIComponent(name)}/files?${query.toString()}`, {
+      cache: "no-store",
+    });
     const data = (await res.json().catch(() => null)) as
       | (FileListResponse & { error?: string })
       | null;
@@ -188,7 +217,6 @@ export default function DbFilesPage({
     }
 
     setRows(data.files);
-    setTotal(data.total);
   }, [name, currentFolder]);
 
   useEffect(() => {

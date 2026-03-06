@@ -424,7 +424,26 @@ const fileUrl = `https://host/api/db/mydb/files/file-id?token=${tokenData.token}
 // Authorization: Bearer <token>
 ```
 
-The token is stateless and cannot be revoked before expiry. Default TTL is 30 days, maximum is 1 year.
+The token is read-only (`files:read`) and cannot be used for upload/delete operations. Default TTL is 30 days, maximum is 1 year.
+
+#### `db.files.revokeFileAccessToken(options)`
+
+Revokes a previously issued file access token.
+
+```ts
+// Revoke using the original token string
+await db.files!.revokeFileAccessToken({
+  token: tokenData.token,
+  reason: "rotated credential",
+});
+
+// Or revoke by token ID + expiresAt if stored separately
+await db.files!.revokeFileAccessToken({
+  tokenId: "token-id",
+  expiresAt: tokenData.expires_at,
+  reason: "compromised",
+});
+```
 
 #### `db.files.getDownloadUrl(fileId)`
 

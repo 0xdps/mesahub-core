@@ -3,6 +3,7 @@ import { authorizeFileAccessToken } from "@/lib/file-access-token";
 import { FileStorageError, listFiles, uploadFile } from "@/lib/file-storage";
 import { logger } from "@/lib/logger";
 import { getDatabase } from "@/lib/registry";
+import { recordAuditEvent } from "@/lib/registry";
 import { NextResponse } from "next/server";
 
 export const runtime = "nodejs";
@@ -67,8 +68,11 @@ export async function POST(req: Request, { params }: Params) {
     const contentTypeRaw = String(formData.get("content_type") ?? fileValue.type ?? "").trim();
     const contentType = contentTypeRaw || null;
     const folderPath = String(formData.get("folder_path") ?? "");
-    const conflictModeRaw = String(formData.get("conflict_mode") ?? "").trim();
-    const conflictMode = conflictModeRaw || undefined;
+    const conflictModeRaw = String(formData.get("conflict_mode") ?? "").trim().toLowerCase();
+    const conflictMode =
+      conflictModeRaw === "replace" || conflictModeRaw === "error"
+        ? conflictModeRaw
+        : undefined;
 
     const metadataRaw = formData.get("metadata");
     let metadata: Record<string, unknown> | null = null;
@@ -101,6 +105,19 @@ export async function POST(req: Request, { params }: Params) {
       bytes,
       expiresAt,
       metadata,
+    });
+
+    recordAuditEvent({
+      eventType: "file.upload",
+      dbName: name,
+      actor: req.headers.get("x-sqlite-hub-admin") === "1" ? "admin_session" : "service_secret",
+      metadata: {
+        file_id: result.id,
+        filename: result.filename,
+        folder_path: result.folderPath,
+        size_bytes: result.sizeBytes,
+        content_type: result.contentType,
+      },
     });
 
     return NextResponse.json(

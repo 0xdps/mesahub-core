@@ -1,6 +1,7 @@
 import { authorizeDbRequest } from "@/lib/auth";
 import { createFileAccessToken, type CreateFileAccessTokenOptions } from "@/lib/file-access-token";
 import { getDatabase } from "@/lib/registry";
+import { recordAuditEvent } from "@/lib/registry";
 import { NextResponse } from "next/server";
 
 export const runtime = "nodejs";
@@ -30,6 +31,13 @@ export async function POST(req: Request, { params }: Params) {
     return NextResponse.json({ error: "Invalid JSON body" }, { status: 400 });
   }
 
+  if (body.scope && body.scope !== "files:read") {
+    return NextResponse.json(
+      { error: "scope must be 'files:read'" },
+      { status: 400 }
+    );
+  }
+
   const scope = "files:read";
   const expiresIn = Number.isFinite(body.expires_in) ? Number(body.expires_in) : undefined;
 
@@ -42,7 +50,19 @@ export async function POST(req: Request, { params }: Params) {
 
     const result = createFileAccessToken(options);
 
+    recordAuditEvent({
+      eventType: "file_token.created",
+      dbName: name,
+      actor: req.headers.get("x-sqlite-hub-admin") === "1" ? "admin_session" : "service_secret",
+      metadata: {
+        scope: result.scope,
+        expires_at: result.expires_at,
+        description: body.description || null,
+      },
+    });
+
     return NextResponse.json({
+      token_id: result.token_id,
       token: result.token,
       token_type: "bearer",
       expires_at: result.expires_at,

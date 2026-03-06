@@ -3,6 +3,7 @@ import { authorizeFileAccessToken } from "@/lib/file-access-token";
 import { getSignedRequestDisposition, isValidPresignedFileRequest } from "@/lib/file-url-signing";
 import { deleteFile, getBlobAbsolutePath, getFileById, isFileExpired } from "@/lib/file-storage";
 import { getDatabase } from "@/lib/registry";
+import { recordAuditEvent } from "@/lib/registry";
 import fs from "fs";
 import { NextResponse } from "next/server";
 import { Readable } from "stream";
@@ -125,6 +126,13 @@ export async function DELETE(req: Request, { params }: Params) {
   if (!deleted) {
     return NextResponse.json({ error: "File not found" }, { status: 404 });
   }
+
+  recordAuditEvent({
+    eventType: "file.delete",
+    dbName: name,
+    actor: req.headers.get("x-sqlite-hub-admin") === "1" ? "admin_session" : "service_secret",
+    metadata: { file_id: id },
+  });
 
   return new NextResponse(null, { status: 204 });
 }

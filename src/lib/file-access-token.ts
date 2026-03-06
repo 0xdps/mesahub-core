@@ -1,24 +1,21 @@
-import { createHmac, timingSafeEqual } from "crypto";
+import { createHmac, randomUUID, timingSafeEqual } from "crypto";
+import { isFileTokenRevoked } from "./registry";
 
 const DEFAULT_TOKEN_TTL_SECONDS = 60 * 60 * 24 * 30; // 30 days
 const MAX_TOKEN_TTL_SECONDS = 60 * 60 * 24 * 365; // 1 year
 
 function getSigningSecret(): string {
-  const secret =
-    process.env.FILE_TOKEN_SIGNING_SECRET ||
-    process.env.FILE_URL_SIGNING_SECRET ||
-    process.env.SESSION_SECRET;
+  const secret = process.env.FILE_TOKEN_SIGNING_SECRET;
 
   if (!secret) {
-    throw new Error(
-      "Missing signing secret: set FILE_TOKEN_SIGNING_SECRET, FILE_URL_SIGNING_SECRET, or SESSION_SECRET"
-    );
+    throw new Error("Missing FILE_TOKEN_SIGNING_SECRET");
   }
 
   return secret;
 }
 
 export interface FileAccessTokenPayload {
+  tokenId: string;
   dbName: string;
   scope: "files:read";
   expiresAt: number;
@@ -31,6 +28,7 @@ export interface CreateFileAccessTokenOptions {
 }
 
 export interface CreateFileAccessTokenResult {
+  token_id: string;
   token: string;
   expires_at: string;
   expires_in: number;
@@ -53,6 +51,7 @@ export function createFileAccessToken(
   const scope = options.scope ?? "files:read";
 
   const payload: FileAccessTokenPayload = {
+    tokenId: randomUUID(),
     dbName: options.dbName,
     scope,
     expiresAt,
@@ -67,6 +66,7 @@ export function createFileAccessToken(
   const token = `${payloadB64}.${signature}`;
 
   return {
+    token_id: payload.tokenId,
     token,
     expires_at: new Date(expiresAt * 1000).toISOString(),
     expires_in: expiresIn,
@@ -104,6 +104,7 @@ export function verifyFileAccessToken(token: string): FileAccessTokenPayload | n
     const payload: FileAccessTokenPayload = JSON.parse(payloadStr);
 
     if (typeof payload.dbName !== "string" || !payload.dbName) return null;
+    if (typeof payload.tokenId !== "string" || !payload.tokenId) return null;
        if (payload.scope !== "files:read") return null;
     if (typeof payload.expiresAt !== "number") return null;
 
@@ -149,6 +150,7 @@ export function authorizeFileAccessToken(
   if (!payload) return null;
 
   if (payload.dbName !== dbName) return null;
+  if (isFileTokenRevoked(payload.tokenId, dbName)) return null;
 
   return payload;
 }

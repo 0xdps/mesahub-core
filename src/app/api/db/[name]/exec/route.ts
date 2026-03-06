@@ -5,6 +5,7 @@ import { recordExecError, recordExecRequest, recordExecSuccess } from "@/lib/exe
 import { logger } from "@/lib/logger";
 import { getDatabase } from "@/lib/registry";
 import { enqueueDbWrite, getWriteQueueDepth } from "@/lib/write-queue";
+import { createHash } from "crypto";
 import { NextResponse } from "next/server";
 
 interface Params {
@@ -34,6 +35,10 @@ function classifySql(sql: string): SqlType {
   }
 
   return "unknown";
+}
+
+function sqlFingerprint(sql: string): string {
+  return createHash("sha256").update(sql).digest("hex").slice(0, 12);
 }
 
 export async function POST(req: Request, { params }: Params) {
@@ -161,7 +166,9 @@ export async function POST(req: Request, { params }: Params) {
   } catch (err) {
     const message = (err as Error).message;
     recordExecError(message);
-    logger.warn(`[exec] "${name}" — SQL error: ${message} | sql: ${sql.slice(0, 120)}`);
+    logger.warn(
+      `[exec] "${name}" — SQL error: ${message} | sql_fp=${sqlFingerprint(sql)} len=${sql.length} type=${sqlType}`
+    );
     return NextResponse.json(
       { error: message },
       { status: 400 }

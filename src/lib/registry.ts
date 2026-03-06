@@ -25,6 +25,30 @@ export function getRegistry(): Database.Database {
       created_at     DATETIME DEFAULT CURRENT_TIMESTAMP,
       status         TEXT DEFAULT 'active'
     );
+
+    CREATE TABLE IF NOT EXISTS file_token_revocations (
+      token_id   TEXT PRIMARY KEY,
+      db_name    TEXT NOT NULL,
+      expires_at DATETIME NOT NULL,
+      reason     TEXT,
+      revoked_at DATETIME DEFAULT CURRENT_TIMESTAMP
+    );
+
+    CREATE INDEX IF NOT EXISTS idx_file_token_revocations_db_name ON file_token_revocations(db_name);
+    CREATE INDEX IF NOT EXISTS idx_file_token_revocations_expires_at ON file_token_revocations(expires_at);
+
+    CREATE TABLE IF NOT EXISTS audit_events (
+      id         INTEGER PRIMARY KEY AUTOINCREMENT,
+      event_type TEXT NOT NULL,
+      db_name    TEXT,
+      actor      TEXT,
+      metadata   TEXT,
+      created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+    );
+
+    CREATE INDEX IF NOT EXISTS idx_audit_events_created_at ON audit_events(created_at);
+    CREATE INDEX IF NOT EXISTS idx_audit_events_db_name ON audit_events(db_name);
+    CREATE INDEX IF NOT EXISTS idx_audit_events_event_type ON audit_events(event_type);
   `);
   // Migrate existing installations — add columns if missing
   const cols = _registry
@@ -52,6 +76,12 @@ export interface DbRecord {
   status: string;
   original_name: string | null;
   deleted_at: string | null;
+}
+
+export interface AuditMetrics {
+  totalEvents: number;
+  eventsLast24h: number;
+  byTypeLast24h: Record<string, number>;
 }
 
 // Cached prepared statements — created once, reused across requests
@@ -173,4 +203,86 @@ export function updateServiceSecret(name: string, secret: string | null): void {
 
 export function setDatabaseStatus(name: string, status: "active" | "inactive"): void {
   getRegistry().prepare("UPDATE databases SET status = ? WHERE name = ?").run(status, name);
+}
+
+export function revokeFileToken(input: {
+  tokenId: string;
+  dbName: string;
+  expiresAt: string;
+  reason?: string;
+}): void {
+  getRegistry()
+    .prepare(
+      `INSERT INTO file_token_revocations (token_id, db_name, expires_at, reason)
+       VALUES (?, ?, ?, ?)
+       ON CONFLICT(token_id) DO UPDATE SET
+         db_name = excluded.db_name,
+         expires_at = excluded.expires_at,
+         reason = excluded.reason,
+         revoked_at = CURRENT_TIMESTAMP`
+    )
+    .run(input.tokenId, input.dbName, input.expiresAt, input.reason ?? null);
+}
+
+export function isFileTokenRevoked(tokenId: string, dbName: string): boolean {
+  const row = getRegistry()
+    .prepare(
+      `SELECT token_id
+       FROM file_token_revocations
+       WHERE token_id = ? AND db_name = ? AND datetime(expires_at) > datetime('now')
+       LIMIT 1`
+    )
+    .get(tokenId, dbName) as { token_id: string } | undefined;
+
+  return !!row;
+}
+
+export function cleanupExpiredFileTokenRevocations(): { deleted: number } {
+  const result = getRegistry()
+    .prepare("DELETE FROM file_token_revocations WHERE datetime(expires_at) <= datetime('now')")
+    .run();
+  return { deleted: result.changes };
+}
+
+export function recordAuditEvent(input: {
+  eventType: string;
+  dbName?: string;
+  actor?: string;
+  metadata?: Record<string, unknown>;
+}): void {
+  getRegistry()
+    .prepare("INSERT INTO audit_events (event_type, db_name, actor, metadata) VALUES (?, ?, ?, ?)")
+    .run(
+      input.eventType,
+      input.dbName ?? null,
+      input.actor ?? null,
+      input.metadata ? JSON.stringify(input.metadata) : null
+    );
+}
+
+export function getAuditMetrics(): AuditMetrics {
+  const db = getRegistry();
+  const totals = db
+    .prepare("SELECT COUNT(*) as total, COALESCE(SUM(CASE WHEN datetime(created_at) >= datetime('now', '-1 day') THEN 1 ELSE 0 END), 0) as last24h FROM audit_events")
+    .get() as { total: number; last24h: number };
+
+  const byTypeRows = db
+    .prepare(
+      `SELECT event_type, COUNT(*) as count
+       FROM audit_events
+       WHERE datetime(created_at) >= datetime('now', '-1 day')
+       GROUP BY event_type`
+    )
+    .all() as { event_type: string; count: number }[];
+
+  const byTypeLast24h: Record<string, number> = {};
+  for (const row of byTypeRows) {
+    byTypeLast24h[row.event_type] = row.count;
+  }
+
+  return {
+    totalEvents: totals.total,
+    eventsLast24h: totals.last24h,
+    byTypeLast24h,
+  };
 }

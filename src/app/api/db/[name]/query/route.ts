@@ -3,6 +3,7 @@ import { authorizeDbRequest } from "@/lib/auth";
 import { getReadonlyDbConnection } from "@/lib/db-pool";
 import { logger } from "@/lib/logger";
 import { getDatabase } from "@/lib/registry";
+import { createHash } from "crypto";
 import { NextResponse } from "next/server";
 
 // Only allow read-only statements
@@ -11,6 +12,10 @@ const BLOCKED_PATTERN =
 
 interface Params {
   params: Promise<{ name: string }>;
+}
+
+function sqlFingerprint(sql: string): string {
+  return createHash("sha256").update(sql).digest("hex").slice(0, 12);
 }
 
 export async function POST(req: Request, { params }: Params) {
@@ -36,7 +41,7 @@ export async function POST(req: Request, { params }: Params) {
   const { sql } = body as { sql: string };
 
   if (BLOCKED_PATTERN.test(sql)) {
-    logger.warn(`[query] "${name}" — write attempt blocked: ${sql.slice(0, 80)}`);
+    logger.warn(`[query] "${name}" — write attempt blocked | sql_fp=${sqlFingerprint(sql)} len=${sql.length}`);
     return NextResponse.json(
       { error: "Only SELECT statements are allowed" },
       { status: 403 }
@@ -76,7 +81,9 @@ export async function POST(req: Request, { params }: Params) {
 
     return NextResponse.json(result);
   } catch (err) {
-    logger.warn(`[query] "${name}" — SQL error: ${(err as Error).message} | sql: ${sql.slice(0, 120)}`);
+    logger.warn(
+      `[query] "${name}" — SQL error: ${(err as Error).message} | sql_fp=${sqlFingerprint(sql)} len=${sql.length}`
+    );
     return NextResponse.json(
       { error: (err as Error).message },
       { status: 400 }

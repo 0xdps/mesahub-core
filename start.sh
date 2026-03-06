@@ -59,6 +59,29 @@ if [ "$NODE_ENV" = "development" ]; then
 		}
 	}
 	
+	# Shortlink file routes with X-Sendfile acceleration
+	handle /*/file/* {
+		reverse_proxy localhost:$BACKEND_PORT {
+			@sendfile header X-Sendfile *
+			handle_response @sendfile {
+				# Preserve response headers from Node.js (CORS, content-type, etc)
+				header {
+					# Copy CORS headers from reverse proxy response
+					Vary {http.reverse_proxy.header.Vary}
+					Access-Control-Allow-Origin {http.reverse_proxy.header.Access-Control-Allow-Origin}
+					Access-Control-Allow-Methods {http.reverse_proxy.header.Access-Control-Allow-Methods}
+					Access-Control-Allow-Headers {http.reverse_proxy.header.Access-Control-Allow-Headers}
+					X-Content-Hash {http.reverse_proxy.header.X-Content-Hash}
+					# Remove X-Sendfile so it doesn't leak to client
+					-X-Sendfile
+				}
+				root * /data/files/blobs
+				rewrite * {http.reverse_proxy.header.X-Sendfile}
+				file_server
+			}
+		}
+	}
+	
 	# Everything else to Next.js
 	handle {
 		reverse_proxy localhost:$BACKEND_PORT
@@ -135,6 +158,29 @@ else
 		reverse_proxy localhost:$BACKEND_PORT {
 			@sendfile header X-Sendfile *
 			handle_response @sendfile {
+				root * /data/files/blobs
+				rewrite * {http.reverse_proxy.header.X-Sendfile}
+				file_server
+			}
+		}
+	}
+	
+	# Shortlink file routes with X-Sendfile acceleration
+	handle /*/file/* {
+		reverse_proxy localhost:$BACKEND_PORT {
+			@sendfile header X-Sendfile *
+			handle_response @sendfile {
+				# Preserve response headers from Node.js (CORS, content-type, etc)
+				header {
+					# Copy CORS headers from reverse proxy response
+					Vary {http.reverse_proxy.header.Vary}
+					Access-Control-Allow-Origin {http.reverse_proxy.header.Access-Control-Allow-Origin}
+					Access-Control-Allow-Methods {http.reverse_proxy.header.Access-Control-Allow-Methods}
+					Access-Control-Allow-Headers {http.reverse_proxy.header.Access-Control-Allow-Headers}
+					X-Content-Hash {http.reverse_proxy.header.X-Content-Hash}
+					# Remove X-Sendfile so it doesn't leak to client
+					-X-Sendfile
+				}
 				root * /data/files/blobs
 				rewrite * {http.reverse_proxy.header.X-Sendfile}
 				file_server

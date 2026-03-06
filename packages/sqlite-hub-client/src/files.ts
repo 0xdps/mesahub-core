@@ -110,6 +110,7 @@ export interface CreateFileAccessTokenOptions {
 }
 
 export interface FileAccessTokenResponse {
+  token_id: string;
   token: string;
   token_type: "bearer";
   expires_at: string;
@@ -117,6 +118,19 @@ export interface FileAccessTokenResponse {
   scope: string;
   description?: string;
   usage: string;
+}
+
+export interface RevokeFileAccessTokenOptions {
+  token?: string;
+  tokenId?: string;
+  expiresAt?: string;
+  reason?: string;
+}
+
+export interface RevokeFileAccessTokenResponse {
+  success: boolean;
+  token_id: string;
+  revoked_at: string;
 }
 
 function toBlob(file: UploadFileInput["file"], contentType?: string): Blob {
@@ -248,6 +262,30 @@ export class FileClient {
         ...(options.expiresIn !== undefined ? { expires_in: options.expiresIn } : {}),
         ...(options.description ? { description: options.description } : {}),
       }),
+    });
+  }
+
+  async revokeFileAccessToken(
+    options: RevokeFileAccessTokenOptions
+  ): Promise<RevokeFileAccessTokenResponse> {
+    const tokenPath = `/api/db/${encodeURIComponent(this.options.db)}/tokens/files/revoke`;
+    const payload: Record<string, unknown> = {
+      ...(options.token ? { token: options.token } : {}),
+      ...(options.reason ? { reason: options.reason } : {}),
+    };
+
+    if (!options.token) {
+      if (!options.tokenId || !options.expiresAt) {
+        throw new Error("tokenId and expiresAt are required when token is not provided");
+      }
+      payload.token_id = options.tokenId;
+      payload.expires_at = options.expiresAt;
+    }
+
+    return this.requestJson<RevokeFileAccessTokenResponse>(tokenPath, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(payload),
     });
   }
 

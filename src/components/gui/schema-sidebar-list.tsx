@@ -7,8 +7,9 @@ import { DatabaseSchemaItem } from "@/drivers/base-driver";
 import { triggerEditorExtensionTab } from "@/extensions/trigger-editor";
 import { ExportFormat, exportTableData } from "@/lib/export-helper";
 import { Icon, Table } from "@phosphor-icons/react";
-import { LucideCog, LucideClipboardCopy, LucideDatabase, LucideDownload, LucideEraser, LucideFileCode2, LucideFileJson, LucideFileSpreadsheet, LucideFileText, LucidePencil, LucidePlus, LucideRefreshCw, LucideTable, LucideTrash, LucideView } from "lucide-react";
+import { LucideCog, LucideClipboardCopy, LucideDatabase, LucideDownload, LucideEraser, LucideFileCode2, LucideFileJson, LucideFileSpreadsheet, LucideFileText, LucidePencil, LucidePlus, LucideRefreshCw, LucideTable, LucideTrash, LucideUpload, LucideView } from "lucide-react";
 import { useCallback, useEffect, useMemo, useState } from "react";
+import { toast } from "sonner";
 import { ListView, ListViewItem } from "../listview";
 import { CloudflareIcon } from "../resource-card/icon";
 import SchemaCreateDialog from "./schema-editor/schema-create";
@@ -133,7 +134,9 @@ function flattenSchemaGroup(
 // Copy of export-result-button.tsx
 async function downloadExportTable(
   format: string,
-  handler: Promise<string | Blob>
+  handler: Promise<string | Blob>,
+  dbName: string,
+  tableName: string
 ) {
   try {
     if (!format) return;
@@ -147,7 +150,7 @@ async function downloadExportTable(
     const url = URL.createObjectURL(blob);
     const a = document.createElement("a");
     a.href = url;
-    a.download = `export.${format === "delimited" ? "csv" : format}`;
+    a.download = `${dbName}-${tableName}.${format === "delimited" ? "csv" : format}`;
     a.click();
     URL.revokeObjectURL(url);
   } catch (error) {
@@ -156,7 +159,7 @@ async function downloadExportTable(
 }
 
 export default function SchemaList({ search }: Readonly<SchemaListProps>) {
-  const { databaseDriver, extensions } = useStudioContext();
+  const { databaseDriver, extensions, name: dbName } = useStudioContext();
   const [selected, setSelected] = useState("");
   const { refresh, schema, currentSchemaName } = useSchema();
   const { showDialog } = useCommonDialog();
@@ -178,6 +181,110 @@ export default function SchemaList({ search }: Readonly<SchemaListProps>) {
       { title: "Export as SQL INSERT", format: "sql",  icon: LucideFileCode2 },
     ];
   }, []);
+
+  const handleImportFile = useCallback(
+    async (file: File, schemaName: string, tableName: string) => {
+      try {
+        const text = await file.text();
+        const fileExt = file.name.split(".").pop()?.toLowerCase();
+        
+        let rows: Record<string, unknown>[] = [];
+        
+        if (fileExt === "json") {
+          const parsed = JSON.parse(text);
+          rows = Array.isArray(parsed) ? parsed : [parsed];
+        } else if (fileExt === "csv") {
+          // Simple CSV parser (handles quoted values)
+          const lines = text.split("\n").filter(line => line.trim());
+          if (lines.length < 2) {
+            toast.error("CSV file must have at least a header row and one data row");
+            return;
+          }
+          
+          const parseCSVLine = (line: string): string[] => {
+            const result: string[] = [];
+            let current = "";
+            let inQuotes = false;
+            
+            for (let i = 0; i < line.length; i++) {
+              const char = line[i];
+              if (char === '"') {
+                if (inQuotes && line[i + 1] === '"') {
+                  current += '"';
+                  i++;
+                } else {
+                  inQuotes = !inQuotes;
+                }
+              } else if (char === "," && !inQuotes) {
+                result.push(current.trim());
+                current = "";
+              } else {
+                current += char;
+              }
+            }
+            result.push(current.trim());
+            return result;
+          };
+          
+          const headers = parseCSVLine(lines[0]);
+          
+          for (let i = 1; i < lines.length; i++) {
+            const values = parseCSVLine(lines[i]);
+            const row: Record<string, unknown> = {};
+            headers.forEach((header, index) => {
+              const value = values[index] || null;
+              // Convert "NULL" string to actual null
+              row[header] = value === "NULL" || value === "" ? null : value;
+            });
+            rows.push(row);
+          }
+        } else {
+          toast.error("Unsupported file format. Please use CSV or JSON.");
+          return;
+        }
+
+        if (rows.length === 0) {
+          toast.error("No data found in file");
+          return;
+        }
+
+        // Get table columns
+        const tableInfo = await databaseDriver.query(
+          `SELECT * FROM ${databaseDriver.escapeId(tableName)} LIMIT 0`
+        );
+        
+        const columns = tableInfo.headers.map(h => h.name);
+        
+        // Insert data in batches
+        const batchSize = 100;
+        let inserted = 0;
+        
+        for (let i = 0; i < rows.length; i += batchSize) {
+          const batch = rows.slice(i, i + batchSize);
+          
+          for (const row of batch) {
+            const cols = Object.keys(row).filter(k => columns.includes(k));
+            if (cols.length === 0) continue;
+            
+            const colNames = cols.map(c => databaseDriver.escapeId(c)).join(", ");
+            const values = cols.map(c => databaseDriver.escapeValue(row[c])).join(", ");
+            
+            await databaseDriver.query(
+              `INSERT INTO ${databaseDriver.escapeId(tableName)} (${colNames}) VALUES (${values})`
+            );
+            inserted++;
+          }
+        }
+        
+        toast.success(`Imported ${inserted} row${inserted !== 1 ? "s" : ""} into ${tableName}`);
+        refresh();
+      } catch (error) {
+        console.error("Import error:", error);
+        toast.error(`Import failed: ${(error as Error).message}`);
+      }
+    },
+    [databaseDriver, refresh]
+  );
 
   const prepareContextMenu = useCallback(
     (item?: DatabaseSchemaItem) => {
@@ -236,9 +343,30 @@ export default function SchemaList({ search }: Readonly<SchemaListProps>) {
                     format as ExportFormat,
                     "file"
                   );
-                  downloadExportTable(format, handler);
+                  downloadExportTable(format, handler, dbName, selectedName);
                 },
               })),
+            }
+          : undefined;
+
+      const importSection =
+        isTable && selectedName
+          ? {
+              title: "Import Data",
+              icon: LucideUpload,
+              onClick: () => {
+                // Trigger file input
+                const input = document.createElement("input");
+                input.type = "file";
+                input.accept = ".csv,.json";
+                input.onchange = async (e) => {
+                  const file = (e.target as HTMLInputElement).files?.[0];
+                  if (file) {
+                    await handleImportFile(file, schemaName, selectedName);
+                  }
+                };
+                input.click();
+              },
             }
           : undefined;
 
@@ -256,6 +384,8 @@ export default function SchemaList({ search }: Readonly<SchemaListProps>) {
 
         // Export Section
         exportSection,
+        // Import Section
+        importSection,
         // Modification Section
         ...modificationSection,
         modificationSection.length > 0 ? { separator: true } : undefined,
@@ -318,7 +448,7 @@ export default function SchemaList({ search }: Readonly<SchemaListProps>) {
         { title: "Refresh", icon: LucideRefreshCw, onClick: () => refresh() },
       ].filter(Boolean) as OpenContextMenuList;
     },
-    [refresh, databaseDriver, currentSchemaName, extensions, exportFormats, showDialog]
+    [refresh, databaseDriver, currentSchemaName, extensions, exportFormats, showDialog, handleImportFile, dbName]
   );
 
   const listViewItems = useMemo(() => {

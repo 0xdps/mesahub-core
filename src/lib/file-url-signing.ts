@@ -19,14 +19,10 @@ const MAX_PRESIGN_TTL_SECONDS = Number.parseInt(
 );
 
 function getSigningSecret(): string {
-  const secret =
-    process.env.FILE_URL_SIGNING_SECRET ??
-    process.env.SESSION_SECRET ??
-    process.env.ADMIN_TOKEN ??
-    "";
+  const secret = process.env.FILE_URL_SIGNING_SECRET ?? "";
 
   if (!secret) {
-    throw new Error("Missing signing secret for file URL signing");
+    throw new Error("Missing FILE_URL_SIGNING_SECRET for file URL signing");
   }
 
   return secret;

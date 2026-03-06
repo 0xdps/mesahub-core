@@ -4,6 +4,8 @@ import type { DbRecord } from "./registry";
 
 // Must match the constant exported from middleware
 const ADMIN_SESSION_HEADER = "x-sqlite-hub-admin";
+const ALLOW_INTERNAL_DB_ACCESS_WITHOUT_SECRET =
+  (process.env.ALLOW_INTERNAL_DB_ACCESS_WITHOUT_SECRET ?? "false").toLowerCase() === "true";
 
 function extractBearer(req: Request): string | null {
   const header = req.headers.get("authorization");
@@ -78,10 +80,10 @@ export function authorizeDbRequest(req: Request, record: DbRecord): NextResponse
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
 
-  // No service_secret: rules 4 & 5
-  if (isInternalRequest(req)) return null;
+  // No service_secret: internal bypass is opt-in only.
+  if (ALLOW_INTERNAL_DB_ACCESS_WITHOUT_SECRET && isInternalRequest(req)) return null;
   return NextResponse.json(
-    { error: "Forbidden: this database has no service_secret — access requires an internal network or a service_secret" },
+    { error: "Forbidden: this database has no service_secret — set a service_secret for API access" },
     { status: 403 }
   );
 }

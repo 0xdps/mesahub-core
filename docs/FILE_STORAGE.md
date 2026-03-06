@@ -208,15 +208,48 @@ Response:
 }
 ```
 
-This token can be used for long-term file access in third-party dashboards. Unlike presigned URLs which are per-file, a file access token works for all file operations on the database.
+This token can be used for long-term file access in third-party dashboards. Unlike presigned URLs which are per-file, a file access token works for read operations across the database.
 
 Use the token by either:
 - Query parameter: `GET /api/db/mydb/files/:id?token=...`
 - Authorization header: `Authorization: Bearer <token>`
 
-The token is stateless and cannot be revoked before expiry. Default TTL is 30 days, maximum is 1 year.
+Token revocation is supported via `POST /api/db/:name/tokens/files/revoke`.
 
-### 4.8 Delete file
+### 4.8 Revoke file access token
+
+- `POST /api/db/:name/tokens/files/revoke`
+- Body (either token, or token_id + expires_at):
+
+```json
+{
+  "token": "eyJ...",
+  "reason": "rotated credential"
+}
+```
+
+or
+
+```json
+{
+  "token_id": "uuid",
+  "expires_at": "2026-04-05T00:00:00.000Z",
+  "reason": "compromised"
+}
+```
+
+### 4.9 Maintenance cleanup endpoint
+
+- `POST /api/maintenance/cleanup`
+- Admin-session protected
+- Cleans expired files and expired token revocation records
+
+### 4.10 CORS and API versioning
+
+- Configure `CORS_ALLOWED_ORIGINS` for third-party browser clients
+- `/api/v1/*` is supported and rewritten to `/api/*`
+
+### 4.11 Delete file
 
 - `DELETE /api/db/:name/files/:id`
 

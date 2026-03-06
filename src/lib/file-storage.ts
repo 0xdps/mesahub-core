@@ -194,6 +194,34 @@ function metadataToString(metadata: Record<string, unknown> | null): string | nu
   return raw;
 }
 
+function detectMimeFromBytes(bytes: Buffer): string | null {
+  if (bytes.length >= 8 && bytes[0] === 0x89 && bytes[1] === 0x50 && bytes[2] === 0x4e && bytes[3] === 0x47) {
+    return "image/png";
+  }
+  if (bytes.length >= 3 && bytes[0] === 0xff && bytes[1] === 0xd8 && bytes[2] === 0xff) {
+    return "image/jpeg";
+  }
+  if (bytes.length >= 6 && bytes.subarray(0, 6).toString("ascii") === "GIF89a") {
+    return "image/gif";
+  }
+  if (bytes.length >= 5 && bytes.subarray(0, 5).toString("ascii") === "%PDF-") {
+    return "application/pdf";
+  }
+  if (bytes.length >= 4 && bytes[0] === 0x50 && bytes[1] === 0x4b && bytes[2] === 0x03 && bytes[3] === 0x04) {
+    return "application/zip";
+  }
+  if (bytes.length >= 2 && bytes[0] === 0x1f && bytes[1] === 0x8b) {
+    return "application/gzip";
+  }
+  return null;
+}
+
+function normalizeContentType(value: string | null): string | null {
+  if (!value) return null;
+  const normalized = value.trim().toLowerCase();
+  return normalized || null;
+}
+
 function isMimeAllowed(contentType: string | null): boolean {
   if (!contentType) return true;
   const value = contentType.toLowerCase();
@@ -256,11 +284,44 @@ function requireWithinLimits(dbName: string, fileSize: number): void {
   }
 }
 
+function requireProjectedLimits(dbName: string, fileCountDelta: number, totalBytesDelta: number): void {
+  const db = getFileDb();
+  const usage = db
+    .prepare(
+      "SELECT COUNT(*) as file_count, COALESCE(SUM(size_bytes), 0) as total_bytes FROM files WHERE db_name = ?"
+    )
+    .get(dbName) as { file_count: number; total_bytes: number };
+
+  const projectedFiles = usage.file_count + fileCountDelta;
+  const projectedBytes = usage.total_bytes + totalBytesDelta;
+
+  if (projectedFiles > LIMITS.maxFilesPerDb) {
+    throw new FileStorageError(`max files per database reached (${LIMITS.maxFilesPerDb})`, 507);
+  }
+
+  if (projectedBytes > LIMITS.maxStoragePerDbBytes) {
+    throw new FileStorageError(`database storage quota exceeded (${LIMITS.maxStoragePerDbBytes} bytes)`, 507);
+  }
+}
+
 export function uploadFile(input: UploadInput): UploadResult {
   const filename = normalizeFilename(input.filename);
   const folderPath = normalizeFolderPath(input.folderPath);
   const conflictMode = normalizeConflictMode(input.conflictMode);
-  const contentType = input.contentType?.trim() || null;
+  const claimedContentType = normalizeContentType(input.contentType?.trim() || null);
+  const detectedContentType = detectMimeFromBytes(input.bytes);
+  if (
+    detectedContentType &&
+    claimedContentType &&
+    claimedContentType !== detectedContentType &&
+    claimedContentType !== "application/octet-stream"
+  ) {
+    throw new FileStorageError(
+      `content type mismatch (claimed: ${claimedContentType}, detected: ${detectedContentType})`,
+      400
+    );
+  }
+  const contentType = detectedContentType ?? claimedContentType;
 
   if (!isMimeAllowed(contentType)) {
     throw new FileStorageError("content type is not allowed", 400);
@@ -287,6 +348,8 @@ export function uploadFile(input: UploadInput): UploadResult {
 
   if (existing) {
     const tx = db.transaction(() => {
+      requireProjectedLimits(input.dbName, 0, input.bytes.length - existing.size_bytes);
+
       if (existing.content_hash !== contentHash) {
         const newRef = db
           .prepare("SELECT ref_count FROM blob_refs WHERE content_hash = ?")
@@ -345,6 +408,8 @@ export function uploadFile(input: UploadInput): UploadResult {
 
   const id = randomUUID();
   const tx = db.transaction(() => {
+    requireProjectedLimits(input.dbName, 1, input.bytes.length);
+
     const existingRef = db
       .prepare("SELECT ref_count FROM blob_refs WHERE content_hash = ?")
       .get(contentHash) as { ref_count: number } | undefined;
@@ -548,4 +613,24 @@ export function getFileStorageMetrics(): FileStorageMetrics {
     totalBytes: totals.bytes,
     byDatabase,
   };
+}
+
+export function cleanupExpiredFiles(limit = 1000): { scanned: number; deleted: number } {
+  const db = getFileDb();
+  const rows = db
+    .prepare(
+      `SELECT id, db_name
+       FROM files
+       WHERE expires_at IS NOT NULL AND datetime(expires_at) <= datetime('now')
+       ORDER BY expires_at ASC
+       LIMIT ?`
+    )
+    .all(limit) as { id: string; db_name: string }[];
+
+  let deleted = 0;
+  for (const row of rows) {
+    if (deleteFile(row.db_name, row.id)) deleted += 1;
+  }
+
+  return { scanned: rows.length, deleted };
 }
