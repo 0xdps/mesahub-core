@@ -1,10 +1,12 @@
 # Multi-stage build for efficient image size
-FROM node:20-alpine AS builder
+# Build in the same Alpine package ecosystem as runtime so native addons
+# (e.g. better-sqlite3) are compiled for the exact Node ABI used at runtime.
+FROM caddy:2-alpine AS builder
 
 WORKDIR /app
 
 # Install native build tools required by better-sqlite3
-RUN apk add --no-cache python3 make g++
+RUN apk add --no-cache nodejs npm python3 make g++
 
 # Copy package files
 COPY package*.json ./
