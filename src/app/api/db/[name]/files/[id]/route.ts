@@ -100,31 +100,36 @@ export async function GET(req: Request, { params }: Params) {
   if (isFileExpired(file)) return NextResponse.json({ error: "File expired" }, { status: 410 });
 
   const disposition = hasSignedAccess ? getSignedRequestDisposition(req) : "inline";
+  const blobPath = getBlobAbsolutePath(file.content_hash);
+  const blobExists = fs.existsSync(blobPath);
 
   const proxyEnabled = (process.env.ENABLE_FILE_PROXY_DELIVERY ?? "true").toLowerCase() !== "false";
 
-  if (proxyEnabled) {
+  console.log("[file-get] pre-response", {
+    fileId: id,
+    contentHash: file.content_hash,
+    blobPath,
+    blobExists,
+    proxyEnabled,
+    contentType: file.content_type,
+    sizeBytes: file.size_bytes,
+  });
+
+  if (proxyEnabled && blobExists) {
     const headers = {
       ...buildFileHeaders(file, disposition),
       "X-Sendfile": "/" + file.content_hash,
     };
-    console.log("[file-get] X-Sendfile response", {
-      fileId: id,
-      dbName: name,
-      contentHash: file.content_hash,
-      contentType: file.content_type,
-      sizeBytes: file.size_bytes,
-      headers,
-    });
+    console.log("[file-get] X-Sendfile response", { fileId: id, xSendfile: headers["X-Sendfile"] });
     return new NextResponse(null, { headers });
   }
 
-  const blobPath = getBlobAbsolutePath(file.content_hash);
-  console.log("[file-get] direct stream", { fileId: id, blobPath, exists: fs.existsSync(blobPath) });
-  if (!fs.existsSync(blobPath)) {
-    return NextResponse.json({ error: "Blob not found" }, { status: 404 });
+  if (!blobExists) {
+    console.error("[file-get] BLOB MISSING on disk", { blobPath, contentHash: file.content_hash });
+    return NextResponse.json({ error: "Blob not found on disk" }, { status: 404 });
   }
 
+  console.log("[file-get] direct stream (proxy disabled)", { fileId: id, blobPath });
   const stream = fs.createReadStream(blobPath);
   return new NextResponse(Readable.toWeb(stream) as ReadableStream, {
     headers: buildFileHeaders(file, disposition),
