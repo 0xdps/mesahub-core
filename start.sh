@@ -160,7 +160,9 @@ else
     
     # Run Next.js on BACKEND_PORT only; do NOT export PORT=BACKEND_PORT to the
     # shell or Caddy would try to bind the same port as Next.js.
-    PORT=$BACKEND_PORT node /app/server.js &
+    # HOSTNAME=0.0.0.0 ensures Next.js binds to all interfaces (not just the
+    # container hostname), so curl http://localhost:$BACKEND_PORT succeeds.
+    PORT=$BACKEND_PORT HOSTNAME=0.0.0.0 node /app/server.js &
     BACKEND_PID=$!
     
     # Wait for backend to be ready (quicker for prod)
