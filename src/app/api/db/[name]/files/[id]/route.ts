@@ -123,7 +123,8 @@ export async function GET(req: Request, { params }: Params) {
     // so setting Content-Length to the file size would lie to Caddy, making it wait
     // for bytes that never arrive (causing a ~6s timeout). Caddy's file_server sets
     // the correct Content-Length from the actual file it serves.
-    const { "Content-Length": _drop, ...headersWithoutLength } = buildFileHeaders(file, disposition) as Record<string, string>;
+    const headersWithoutLength = buildFileHeaders(file, disposition) as Record<string, string>;
+    delete headersWithoutLength["Content-Length"];
     const headers = {
       ...headersWithoutLength,
       "X-Sendfile": "/" + file.content_hash,

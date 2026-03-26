@@ -63,7 +63,8 @@ export async function GET(req: Request, { params }: Params) {
   if (proxyEnabled) {
     // Do NOT include Content-Length — body is null/empty, so the file size would
     // lie to Caddy and cause it to stall waiting for bytes. file_server sets its own.
-    const { "Content-Length": _drop, ...headersWithoutLength } = buildFileHeaders(file, disposition) as Record<string, string>;
+    const headersWithoutLength = buildFileHeaders(file, disposition) as Record<string, string>;
+    delete headersWithoutLength["Content-Length"];
     return new NextResponse(null, {
       headers: {
         ...headersWithoutLength,
