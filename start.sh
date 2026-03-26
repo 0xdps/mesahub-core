@@ -30,6 +30,8 @@ if [ "$NODE_ENV" = "development" ]; then
     # Run the plain Next.js dev server in-container; host Portless handles routing.
     echo "Starting Next.js dev server on port $BACKEND_PORT..."
     PORT=$BACKEND_PORT npx next dev -p $BACKEND_PORT -H 0.0.0.0 &
+    # Restore PORT so the Caddyfile heredoc below uses the external port
+    PORT=${PORT}
     BACKEND_PID=$!
     
     # Wait for dev server to be ready (longer timeout for dev)
@@ -78,10 +80,13 @@ if [ "$NODE_ENV" = "development" ]; then
 			header_up X-Forwarded-For {remote_host}
 			@sendfile header X-Sendfile *
 			handle_response @sendfile {
+				# Copy metadata headers from upstream; do NOT copy Content-Length —
+				# the upstream body is empty (X-Sendfile pattern) so Content-Length
+				# would lie and cause Caddy to stall waiting for bytes. file_server
+				# sets the correct Content-Length from the actual file on disk.
 				header {
 					Content-Type {http.reverse_proxy.header.Content-Type}
 					Content-Disposition {http.reverse_proxy.header.Content-Disposition}
-					Content-Length {http.reverse_proxy.header.Content-Length}
 					ETag {http.reverse_proxy.header.ETag}
 					X-Content-Hash {http.reverse_proxy.header.X-Content-Hash}
 					Vary {http.reverse_proxy.header.Vary}
@@ -102,15 +107,15 @@ if [ "$NODE_ENV" = "development" ]; then
 		reverse_proxy localhost:$BACKEND_PORT {
 			@sendfile header X-Sendfile *
 			handle_response @sendfile {
-				# Preserve response headers from Node.js (CORS, content-type, etc)
 				header {
-					# Copy CORS headers from reverse proxy response
+					Content-Type {http.reverse_proxy.header.Content-Type}
+					Content-Disposition {http.reverse_proxy.header.Content-Disposition}
+					ETag {http.reverse_proxy.header.ETag}
+					X-Content-Hash {http.reverse_proxy.header.X-Content-Hash}
 					Vary {http.reverse_proxy.header.Vary}
 					Access-Control-Allow-Origin {http.reverse_proxy.header.Access-Control-Allow-Origin}
 					Access-Control-Allow-Methods {http.reverse_proxy.header.Access-Control-Allow-Methods}
 					Access-Control-Allow-Headers {http.reverse_proxy.header.Access-Control-Allow-Headers}
-					X-Content-Hash {http.reverse_proxy.header.X-Content-Hash}
-					# Remove X-Sendfile so it doesn't leak to client
 					-X-Sendfile
 				}
 				root * /data/files/blobs
@@ -153,6 +158,8 @@ else
         exit 1
     fi
     
+    # Run Next.js on BACKEND_PORT only; do NOT export PORT=BACKEND_PORT to the
+    # shell or Caddy would try to bind the same port as Next.js.
     PORT=$BACKEND_PORT node /app/server.js &
     BACKEND_PID=$!
     
@@ -202,10 +209,13 @@ else
 			header_up X-Forwarded-For {remote_host}
 			@sendfile header X-Sendfile *
 			handle_response @sendfile {
+				# Copy metadata headers from upstream; do NOT copy Content-Length —
+				# the upstream body is empty (X-Sendfile pattern) so Content-Length
+				# would lie and cause Caddy to stall waiting for bytes. file_server
+				# sets the correct Content-Length from the actual file on disk.
 				header {
 					Content-Type {http.reverse_proxy.header.Content-Type}
 					Content-Disposition {http.reverse_proxy.header.Content-Disposition}
-					Content-Length {http.reverse_proxy.header.Content-Length}
 					ETag {http.reverse_proxy.header.ETag}
 					X-Content-Hash {http.reverse_proxy.header.X-Content-Hash}
 					Vary {http.reverse_proxy.header.Vary}
@@ -226,15 +236,15 @@ else
 		reverse_proxy localhost:$BACKEND_PORT {
 			@sendfile header X-Sendfile *
 			handle_response @sendfile {
-				# Preserve response headers from Node.js (CORS, content-type, etc)
 				header {
-					# Copy CORS headers from reverse proxy response
+					Content-Type {http.reverse_proxy.header.Content-Type}
+					Content-Disposition {http.reverse_proxy.header.Content-Disposition}
+					ETag {http.reverse_proxy.header.ETag}
+					X-Content-Hash {http.reverse_proxy.header.X-Content-Hash}
 					Vary {http.reverse_proxy.header.Vary}
 					Access-Control-Allow-Origin {http.reverse_proxy.header.Access-Control-Allow-Origin}
 					Access-Control-Allow-Methods {http.reverse_proxy.header.Access-Control-Allow-Methods}
 					Access-Control-Allow-Headers {http.reverse_proxy.header.Access-Control-Allow-Headers}
-					X-Content-Hash {http.reverse_proxy.header.X-Content-Hash}
-					# Remove X-Sendfile so it doesn't leak to client
 					-X-Sendfile
 				}
 				root * /data/files/blobs

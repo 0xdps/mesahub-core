@@ -119,8 +119,13 @@ export async function GET(req: Request, { params }: Params) {
   // If the proxy is not in the request path (e.g. Railway routing directly to Node),
   // X-Sendfile is ignored and the client gets an empty body — fall through to direct streaming.
   if (proxyEnabled && blobExists) {
+    // Do NOT include Content-Length here. The body of this response is null (empty),
+    // so setting Content-Length to the file size would lie to Caddy, making it wait
+    // for bytes that never arrive (causing a ~6s timeout). Caddy's file_server sets
+    // the correct Content-Length from the actual file it serves.
+    const { "Content-Length": _drop, ...headersWithoutLength } = buildFileHeaders(file, disposition) as Record<string, string>;
     const headers = {
-      ...buildFileHeaders(file, disposition),
+      ...headersWithoutLength,
       "X-Sendfile": "/" + file.content_hash,
     };
     console.log("[file-get] X-Sendfile response", { fileId: id, xSendfile: headers["X-Sendfile"] });

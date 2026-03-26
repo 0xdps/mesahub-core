@@ -61,9 +61,12 @@ export async function GET(req: Request, { params }: Params) {
   const proxyEnabled = (process.env.ENABLE_FILE_PROXY_DELIVERY ?? "true").toLowerCase() !== "false";
 
   if (proxyEnabled) {
+    // Do NOT include Content-Length — body is null/empty, so the file size would
+    // lie to Caddy and cause it to stall waiting for bytes. file_server sets its own.
+    const { "Content-Length": _drop, ...headersWithoutLength } = buildFileHeaders(file, disposition) as Record<string, string>;
     return new NextResponse(null, {
       headers: {
-        ...buildFileHeaders(file, disposition),
+        ...headersWithoutLength,
         "X-Sendfile": "/" + file.content_hash,
       },
     });
