@@ -135,8 +135,8 @@ export interface RevokeFileAccessTokenResponse {
 
 function toBlob(file: UploadFileInput["file"], contentType?: string): Blob {
   if (file instanceof Blob) return file;
-  if (file instanceof Uint8Array) return new Blob([file], { type: contentType });
-  return new Blob([new Uint8Array(file)], { type: contentType });
+  if (file instanceof Uint8Array) return new Blob([file.buffer as ArrayBuffer], { type: contentType });
+  return new Blob([file as ArrayBuffer], { type: contentType });
 }
 
 export class FileClient {
