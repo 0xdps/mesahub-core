@@ -115,6 +115,9 @@ export async function GET(req: Request, { params }: Params) {
     sizeBytes: file.size_bytes,
   });
 
+  // Only use X-Sendfile acceleration when explicitly enabled AND the blob is confirmed on disk.
+  // If the proxy is not in the request path (e.g. Railway routing directly to Node),
+  // X-Sendfile is ignored and the client gets an empty body — fall through to direct streaming.
   if (proxyEnabled && blobExists) {
     const headers = {
       ...buildFileHeaders(file, disposition),

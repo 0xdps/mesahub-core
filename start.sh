@@ -1,6 +1,24 @@
 #!/bin/sh
 set -e
 
+# PORT      = external port Caddy listens on (set by Railway, default 80)
+# BACKEND_PORT = internal port Next.js listens on (must differ from PORT)
+PORT=${PORT:-80}
+BACKEND_PORT=${BACKEND_PORT:-3000}
+
+# Guard: if Railway injected PORT and BACKEND_PORT was not explicitly set to
+# something different, the two would collide and Caddy would fail to bind.
+# In that case, pick a safe internal port automatically.
+if [ "$BACKEND_PORT" = "$PORT" ]; then
+  BACKEND_PORT=3000
+  if [ "$PORT" = "3000" ]; then
+    BACKEND_PORT=3001
+  fi
+  echo "⚠️  BACKEND_PORT collision detected with PORT=$PORT — using BACKEND_PORT=$BACKEND_PORT"
+fi
+
+echo "📌 PORT=$PORT (Caddy external)  BACKEND_PORT=$BACKEND_PORT (Next.js internal)"
+
 # Determine behavior based on NODE_ENV
 if [ "$NODE_ENV" = "development" ]; then
     # === DEVELOPMENT MODE ===
@@ -236,8 +254,11 @@ EOF
     echo "Formatting Caddyfile..."
     caddy fmt --overwrite /tmp/Caddyfile
     
+    echo "Validating Caddyfile..."
+    caddy validate --config /tmp/Caddyfile || { echo "❌ Caddyfile validation failed"; exit 1; }
+
     echo "Starting Caddy on port $PORT..."
     # Start Caddy in foreground with the generated config
-    caddy run --config /tmp/Caddyfile
+    exec caddy run --config /tmp/Caddyfile
 fi
 
