@@ -64,7 +64,7 @@ export async function GET(req: Request, { params }: Params) {
     return new NextResponse(null, {
       headers: {
         ...buildFileHeaders(file, disposition),
-        "X-Sendfile": file.content_hash,
+        "X-Sendfile": "/" + file.content_hash,
       },
     });
   }

@@ -106,7 +106,7 @@ export async function GET(req: Request, { params }: Params) {
   if (proxyEnabled) {
     const headers = {
       ...buildFileHeaders(file, disposition),
-      "X-Sendfile": file.content_hash,
+      "X-Sendfile": "/" + file.content_hash,
     };
     console.log("[file-get] X-Sendfile response", {
       fileId: id,
