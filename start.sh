@@ -35,13 +35,20 @@ if [ "$NODE_ENV" = "development" ]; then
 {
 	auto_https off
 	admin off
-	log {
+	log default {
 		output stdout
-		format console
+		format json
+		level DEBUG
 	}
 }
 
 :$PORT {
+	log {
+		output stdout
+		format json
+		level DEBUG
+	}
+
 	# Health check endpoint
 	handle /api/health {
 		reverse_proxy localhost:$BACKEND_PORT
@@ -50,6 +57,7 @@ if [ "$NODE_ENV" = "development" ]; then
 	# File operations with X-Sendfile acceleration
 	handle /api/db/*/files/* {
 		reverse_proxy localhost:$BACKEND_PORT {
+			header_up X-Forwarded-For {remote_host}
 			@sendfile header X-Sendfile *
 			handle_response @sendfile {
 				header {
@@ -101,9 +109,9 @@ if [ "$NODE_ENV" = "development" ]; then
 }
 EOF
     
-    echo "Starting Caddy reverse proxy on port $PORT (logs hidden in dev)..."
-    caddy fmt --overwrite /tmp/Caddyfile >/dev/null 2>&1
-    caddy run --config /tmp/Caddyfile >/dev/null 2>&1
+    echo "Starting Caddy reverse proxy on port $PORT..."
+    caddy fmt --overwrite /tmp/Caddyfile
+    caddy run --config /tmp/Caddyfile
 
 else
     # === PRODUCTION MODE ===
@@ -151,13 +159,18 @@ else
 {
 	auto_https off
 	admin off
+	log default {
+		output stdout
+		format json
+		level DEBUG
+	}
 }
 
 :$PORT {
-	# Default logger
 	log {
 		output stdout
-		format console
+		format json
+		level DEBUG
 	}
 
 	# Health check endpoint
@@ -168,6 +181,7 @@ else
 	# API routes and file operations with X-Sendfile acceleration
 	handle /api/db/*/files/* {
 		reverse_proxy localhost:$BACKEND_PORT {
+			header_up X-Forwarded-For {remote_host}
 			@sendfile header X-Sendfile *
 			handle_response @sendfile {
 				header {

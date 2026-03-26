@@ -14,6 +14,18 @@ interface Params {
   params: Promise<{ name: string; id: string }>;
 }
 
+export async function OPTIONS() {
+  return new NextResponse(null, {
+    status: 204,
+    headers: {
+      "Access-Control-Allow-Origin": "*",
+      "Access-Control-Allow-Methods": "GET, HEAD, OPTIONS",
+      "Access-Control-Allow-Headers": "Authorization, Content-Type",
+      "Access-Control-Max-Age": "86400",
+    },
+  });
+}
+
 function contentDisposition(filename: string): string {
   const safe = filename.replace(/["\\]/g, "_");
   return `inline; filename="${safe}"`;
@@ -37,6 +49,9 @@ function buildFileHeaders(
         : contentDisposition(file.filename),
     "X-Content-Hash": file.content_hash,
     ETag: `"${file.content_hash}"`,
+    "Access-Control-Allow-Origin": "*",
+    "Access-Control-Allow-Methods": "GET, HEAD, OPTIONS",
+    "Access-Control-Allow-Headers": "Authorization, Content-Type",
   };
 }
 
@@ -63,15 +78,21 @@ export async function HEAD(req: Request, { params }: Params) {
 
 export async function GET(req: Request, { params }: Params) {
   const { name, id } = await params;
+  console.log("[file-get] request", { dbName: name, fileId: id, url: req.url });
   const record = getDatabase(name);
   if (!record) return NextResponse.json({ error: "Database not found" }, { status: 404 });
 
   const hasSignedAccess = isValidPresignedFileRequest(req, name, id);
   const hasTokenAccess = !hasSignedAccess && authorizeFileAccessToken(req, name);
+
+  console.log("[file-get] auth", { hasSignedAccess, hasTokenAccess: !!hasTokenAccess });
   
   if (!hasSignedAccess && !hasTokenAccess) {
     const authError = authorizeDbRequest(req, record);
-    if (authError) return authError;
+    if (authError) {
+      console.log("[file-get] auth rejected by authorizeDbRequest");
+      return authError;
+    }
   }
 
   const file = getFileById(name, id);
@@ -83,15 +104,23 @@ export async function GET(req: Request, { params }: Params) {
   const proxyEnabled = (process.env.ENABLE_FILE_PROXY_DELIVERY ?? "true").toLowerCase() !== "false";
 
   if (proxyEnabled) {
-    return new NextResponse(null, {
-      headers: {
-        ...buildFileHeaders(file, disposition),
-        "X-Sendfile": file.content_hash,
-      },
+    const headers = {
+      ...buildFileHeaders(file, disposition),
+      "X-Sendfile": file.content_hash,
+    };
+    console.log("[file-get] X-Sendfile response", {
+      fileId: id,
+      dbName: name,
+      contentHash: file.content_hash,
+      contentType: file.content_type,
+      sizeBytes: file.size_bytes,
+      headers,
     });
+    return new NextResponse(null, { headers });
   }
 
   const blobPath = getBlobAbsolutePath(file.content_hash);
+  console.log("[file-get] direct stream", { fileId: id, blobPath, exists: fs.existsSync(blobPath) });
   if (!fs.existsSync(blobPath)) {
     return NextResponse.json({ error: "Blob not found" }, { status: 404 });
   }
