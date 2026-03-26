@@ -49,6 +49,7 @@ function buildFileHeaders(
         : contentDisposition(file.filename),
     "X-Content-Hash": file.content_hash,
     ETag: `"${file.content_hash}"`,
+    "Cache-Control": "public, max-age=31536000, immutable",
     "Access-Control-Allow-Origin": "*",
     "Access-Control-Allow-Methods": "GET, HEAD, OPTIONS",
     "Access-Control-Allow-Headers": "Authorization, Content-Type",
