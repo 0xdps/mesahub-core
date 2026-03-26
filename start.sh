@@ -52,6 +52,18 @@ if [ "$NODE_ENV" = "development" ]; then
 		reverse_proxy localhost:$BACKEND_PORT {
 			@sendfile header X-Sendfile *
 			handle_response @sendfile {
+				header {
+					Content-Type {http.reverse_proxy.header.Content-Type}
+					Content-Disposition {http.reverse_proxy.header.Content-Disposition}
+					Content-Length {http.reverse_proxy.header.Content-Length}
+					ETag {http.reverse_proxy.header.ETag}
+					X-Content-Hash {http.reverse_proxy.header.X-Content-Hash}
+					Vary {http.reverse_proxy.header.Vary}
+					Access-Control-Allow-Origin {http.reverse_proxy.header.Access-Control-Allow-Origin}
+					Access-Control-Allow-Methods {http.reverse_proxy.header.Access-Control-Allow-Methods}
+					Access-Control-Allow-Headers {http.reverse_proxy.header.Access-Control-Allow-Headers}
+					-X-Sendfile
+				}
 				root * /data/files/blobs
 				rewrite * {http.reverse_proxy.header.X-Sendfile}
 				file_server
@@ -158,6 +170,18 @@ else
 		reverse_proxy localhost:$BACKEND_PORT {
 			@sendfile header X-Sendfile *
 			handle_response @sendfile {
+				header {
+					Content-Type {http.reverse_proxy.header.Content-Type}
+					Content-Disposition {http.reverse_proxy.header.Content-Disposition}
+					Content-Length {http.reverse_proxy.header.Content-Length}
+					ETag {http.reverse_proxy.header.ETag}
+					X-Content-Hash {http.reverse_proxy.header.X-Content-Hash}
+					Vary {http.reverse_proxy.header.Vary}
+					Access-Control-Allow-Origin {http.reverse_proxy.header.Access-Control-Allow-Origin}
+					Access-Control-Allow-Methods {http.reverse_proxy.header.Access-Control-Allow-Methods}
+					Access-Control-Allow-Headers {http.reverse_proxy.header.Access-Control-Allow-Headers}
+					-X-Sendfile
+				}
 				root * /data/files/blobs
 				rewrite * {http.reverse_proxy.header.X-Sendfile}
 				file_server

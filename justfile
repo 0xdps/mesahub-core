@@ -114,6 +114,62 @@ dev:
     # Foreground log stream; Ctrl+C triggers trap and stops dev container.
     $COMPOSE --profile dev logs -f {{DEV_SERVICE}}
 
+# Dev daemon: detached mode with Portless alias and health check.
+# Service keeps running until `just down` is called.
+dev-daemon:
+    #!/usr/bin/env bash
+    set -euo pipefail
+
+    [ -f .env ] || { echo "❌ .env missing. Run: cp .env.example .env"; exit 1; }
+    if command -v docker-compose >/dev/null 2>&1; then
+      COMPOSE="docker-compose"
+    else
+      COMPOSE="docker compose"
+    fi
+
+    npx portless proxy start >/dev/null 2>&1 || true
+
+    $COMPOSE --profile dev up -d --build --force-recreate {{DEV_SERVICE}}
+
+    HOST_PORT=""
+    tries=0
+    max_tries=90
+    while [ $tries -lt $max_tries ]; do
+      HOST_PORT=$($COMPOSE --profile dev port {{DEV_SERVICE}} 80 2>/dev/null | awk -F: '{print $NF}')
+      if [ -n "$HOST_PORT" ]; then
+        break
+      fi
+      tries=$((tries + 1))
+      sleep 1
+    done
+
+    [ -n "$HOST_PORT" ] || {
+      echo "❌ Could not detect dev mapped port within timeout"
+      $COMPOSE --profile dev logs --tail=100 {{DEV_SERVICE}} || true
+      exit 1
+    }
+
+    npx portless alias --remove {{PORTLESS_ALIAS}} >/dev/null 2>&1 || true
+    npx portless alias {{PORTLESS_ALIAS}} "$HOST_PORT" >/dev/null 2>&1 || true
+    echo "Dev URL: http://{{PORTLESS_ALIAS}}.localhost:{{PORTLESS_PROXY_PORT}}"
+
+    health_tries=0
+    health_max=120
+    while [ $health_tries -lt $health_max ]; do
+      if curl -sf "http://localhost:$HOST_PORT/api/health" >/dev/null 2>&1; then
+        echo "✅ Dev daemon service is healthy"
+        break
+      fi
+      health_tries=$((health_tries + 1))
+      sleep 1
+    done
+
+    if [ $health_tries -ge $health_max ]; then
+      echo "⚠️ Dev daemon service did not become healthy within timeout"
+    fi
+
+    echo "Daemon mode active. Use 'just logs {{DEV_SERVICE}}' to follow logs and 'just down' to stop."
+
 # Prod: fixed host port for local production-like runs.
 prod port=DEFAULT_PORT:
     #!/usr/bin/env bash
