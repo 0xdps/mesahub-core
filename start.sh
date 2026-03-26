@@ -58,6 +58,12 @@ if [ "$NODE_ENV" = "development" ]; then
 }
 
 :$PORT {
+	# Silently normalize double leading slashes (e.g. //foo → /foo).
+	# Without this, Caddy issues a redirect which strips CORS headers and
+	# breaks preflight requests from cross-origin clients.
+	@double_slash path_regexp dslash ^//(.*)$
+	rewrite @double_slash /{http.regexp.dslash.1}
+
 	# File operations with X-Sendfile acceleration
 	handle /api/db/*/files/* {
 		reverse_proxy localhost:$BACKEND_PORT {
@@ -169,6 +175,12 @@ else
 }
 
 :$PORT {
+	# Silently normalize double leading slashes (e.g. //foo → /foo).
+	# Without this, Caddy issues a redirect which strips CORS headers and
+	# breaks preflight requests from cross-origin clients.
+	@double_slash path_regexp dslash ^//(.*)$
+	rewrite @double_slash /{http.regexp.dslash.1}
+
 	# API routes and file operations with X-Sendfile acceleration
 	handle /api/db/*/files/* {
 		reverse_proxy localhost:$BACKEND_PORT {

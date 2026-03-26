@@ -292,4 +292,10 @@ export class FileClient {
   getDownloadUrl(fileId: string): string {
     return `${this.baseUrl}${this.basePath}/${encodeURIComponent(fileId)}`;
   }
+
+  getShortlinkUrl(fileId: string): string {
+    const db = encodeURIComponent(this.options.db);
+    const fid = encodeURIComponent(fileId);
+    return `${this.baseUrl}/${db}/file/${fid}`;
+  }
 }
