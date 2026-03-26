@@ -55,25 +55,9 @@ if [ "$NODE_ENV" = "development" ]; then
 {
 	auto_https off
 	admin off
-	log default {
-		output stdout
-		format json
-		level DEBUG
-	}
 }
 
 :$PORT {
-	log {
-		output stdout
-		format json
-		level DEBUG
-	}
-
-	# Health check endpoint
-	handle /api/health {
-		reverse_proxy localhost:$BACKEND_PORT
-	}
-	
 	# File operations with X-Sendfile acceleration
 	handle /api/db/*/files/* {
 		reverse_proxy localhost:$BACKEND_PORT {
@@ -140,10 +124,6 @@ else
     # === PRODUCTION MODE ===
     echo "🚀 Starting SQLite Hub in PRODUCTION mode"
     
-    # Debug: List /app directory contents
-    echo "📂 Contents of /app directory:"
-    ls -la /app/ | head -20
-    
     # Create data directories
     mkdir -p /data /data/files/blobs
     
@@ -186,25 +166,9 @@ else
 {
 	auto_https off
 	admin off
-	log default {
-		output stdout
-		format json
-		level DEBUG
-	}
 }
 
 :$PORT {
-	log {
-		output stdout
-		format json
-		level DEBUG
-	}
-
-	# Health check endpoint
-	handle /api/health {
-		reverse_proxy localhost:$BACKEND_PORT
-	}
-
 	# API routes and file operations with X-Sendfile acceleration
 	handle /api/db/*/files/* {
 		reverse_proxy localhost:$BACKEND_PORT {

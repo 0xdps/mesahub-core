@@ -78,21 +78,15 @@ export async function HEAD(req: Request, { params }: Params) {
 
 export async function GET(req: Request, { params }: Params) {
   const { name, id } = await params;
-  console.log("[file-get] request", { dbName: name, fileId: id, url: req.url });
   const record = getDatabase(name);
   if (!record) return NextResponse.json({ error: "Database not found" }, { status: 404 });
 
   const hasSignedAccess = isValidPresignedFileRequest(req, name, id);
   const hasTokenAccess = !hasSignedAccess && authorizeFileAccessToken(req, name);
 
-  console.log("[file-get] auth", { hasSignedAccess, hasTokenAccess: !!hasTokenAccess });
-  
   if (!hasSignedAccess && !hasTokenAccess) {
     const authError = authorizeDbRequest(req, record);
-    if (authError) {
-      console.log("[file-get] auth rejected by authorizeDbRequest");
-      return authError;
-    }
+    if (authError) return authError;
   }
 
   const file = getFileById(name, id);
@@ -100,45 +94,19 @@ export async function GET(req: Request, { params }: Params) {
   if (isFileExpired(file)) return NextResponse.json({ error: "File expired" }, { status: 410 });
 
   const disposition = hasSignedAccess ? getSignedRequestDisposition(req) : "inline";
-  const blobPath = getBlobAbsolutePath(file.content_hash);
-  const blobExists = fs.existsSync(blobPath);
-
   const proxyEnabled = (process.env.ENABLE_FILE_PROXY_DELIVERY ?? "true").toLowerCase() !== "false";
 
-  console.log("[file-get] pre-response", {
-    fileId: id,
-    contentHash: file.content_hash,
-    blobPath,
-    blobExists,
-    proxyEnabled,
-    contentType: file.content_type,
-    sizeBytes: file.size_bytes,
-  });
-
-  // Only use X-Sendfile acceleration when explicitly enabled AND the blob is confirmed on disk.
-  // If the proxy is not in the request path (e.g. Railway routing directly to Node),
-  // X-Sendfile is ignored and the client gets an empty body — fall through to direct streaming.
-  if (proxyEnabled && blobExists) {
-    // Do NOT include Content-Length here. The body of this response is null (empty),
-    // so setting Content-Length to the file size would lie to Caddy, making it wait
-    // for bytes that never arrive (causing a ~6s timeout). Caddy's file_server sets
-    // the correct Content-Length from the actual file it serves.
+  if (proxyEnabled) {
+    // Do NOT include Content-Length — body is null (X-Sendfile pattern), so the file size
+    // would lie to Caddy and stall it waiting for bytes. Caddy's file_server sets its own.
     const headersWithoutLength = buildFileHeaders(file, disposition) as Record<string, string>;
     delete headersWithoutLength["Content-Length"];
-    const headers = {
-      ...headersWithoutLength,
-      "X-Sendfile": "/" + file.content_hash,
-    };
-    console.log("[file-get] X-Sendfile response", { fileId: id, xSendfile: headers["X-Sendfile"] });
-    return new NextResponse(null, { headers });
+    return new NextResponse(null, {
+      headers: { ...headersWithoutLength, "X-Sendfile": "/" + file.content_hash },
+    });
   }
 
-  if (!blobExists) {
-    console.error("[file-get] BLOB MISSING on disk", { blobPath, contentHash: file.content_hash });
-    return NextResponse.json({ error: "Blob not found on disk" }, { status: 404 });
-  }
-
-  console.log("[file-get] direct stream (proxy disabled)", { fileId: id, blobPath });
+  const blobPath = getBlobAbsolutePath(file.content_hash);
   const stream = fs.createReadStream(blobPath);
   return new NextResponse(Readable.toWeb(stream) as ReadableStream, {
     headers: buildFileHeaders(file, disposition),
