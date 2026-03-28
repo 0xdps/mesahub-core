@@ -33,6 +33,7 @@ export default function DbSettingsPage({
   const [dropLoading, setDropLoading] = useState(false);
   const [confirmReset, setConfirmReset] = useState(false);
   const [resetLoading, setResetLoading] = useState(false);
+  const [successMessage, setSuccessMessage] = useState<string>("");
 
   const loadDb = useCallback(() => {
     fetch(`/api/db/${name}`)
@@ -105,6 +106,7 @@ export default function DbSettingsPage({
   async function handleResetDatabase() {
     setResetLoading(true);
     setError("");
+    setSuccessMessage("");
     const res = await fetch(`/api/db/${name}`, {
       method: "PATCH",
       headers: { "Content-Type": "application/json" },
@@ -116,8 +118,10 @@ export default function DbSettingsPage({
       setError(data.error ?? "Failed to reset database");
       return;
     }
+    setSuccessMessage("✓ Database reset successfully! All tables have been removed.");
     setConfirmReset(false);
     loadDb();
+    setTimeout(() => setSuccessMessage(""), 5000);
   }
 
   async function handleToggleStatus() {
@@ -166,7 +170,7 @@ export default function DbSettingsPage({
   }
 
   return (
-    <div className="px-6 py-8 max-w-5xl mx-auto w-full">
+    <div className="px-6 py-8 max-w-5xl mx-auto w-full h-full overflow-auto">
       <div className="max-w-lg">
 
         {/* Header */}
@@ -191,6 +195,18 @@ export default function DbSettingsPage({
             {db.description && ` · ${db.description}`}
           </p>
         </div>
+
+        {/* Success/Error Messages */}
+        {successMessage && (
+          <div className="bg-green-900/30 border border-green-700 rounded-lg p-3 mb-4">
+            <p className="text-sm text-green-300">{successMessage}</p>
+          </div>
+        )}
+        {error && (
+          <div className="bg-red-900/30 border border-red-700 rounded-lg p-3 mb-4">
+            <p className="text-sm text-red-300">{error}</p>
+          </div>
+        )}
 
         {/* Status toggle section */}
         <div className="border border-neutral-800 rounded-lg p-5 mb-4">
