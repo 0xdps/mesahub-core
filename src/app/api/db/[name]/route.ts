@@ -71,11 +71,23 @@ export async function PATCH(req: Request, { params }: Params) {
         return NextResponse.json({ error: "Database file not found" }, { status: 404 });
       }
 
-      execSync(`sqlite3 "${filePath}" "SELECT name FROM sqlite_master WHERE type='table';" | awk '{print "DROP TABLE IF EXISTS " $1 " CASCADE;"}' | sqlite3 "${filePath}"`, {
+      // First, get list of all tables
+      const tablesOutput = execSync(`sqlite3 "${filePath}" "SELECT name FROM sqlite_master WHERE type='table' AND name NOT LIKE 'sqlite_%';"`, {
+        encoding: "utf-8",
         stdio: "pipe",
       });
+      
+      const tables = tablesOutput.trim().split("\n").filter(t => t.length > 0);
+      
+      if (tables.length > 0) {
+        // Drop each table
+        const dropStatements = tables.map(table => `DROP TABLE IF EXISTS "${table}";`).join(" ");
+        execSync(`sqlite3 "${filePath}" "${dropStatements}"`, {
+          stdio: "pipe",
+        });
+      }
 
-      logger.info(`[db] Database "${name}" reset — all tables dropped`);
+      logger.info(`[db] Database "${name}" reset — all ${tables.length} table(s) dropped`);
       return NextResponse.json({ success: true });
     } catch (error) {
       logger.error(`[db] reset_db "${name}" failed:`, error);
