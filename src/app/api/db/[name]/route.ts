@@ -76,7 +76,7 @@ export async function PATCH(req: Request, { params }: Params) {
       logger.info(`[db] Database "${name}" reset — file deleted and will be recreated`);
       return NextResponse.json({ success: true });
     } catch (error) {
-      logger.error(`[db] reset_db "${name}" failed:`, error);
+      logger.error(`[db] reset_db "${name}" failed: ${error}`);
       return NextResponse.json(
         { error: "Failed to reset database" },
         { status: 500 }
