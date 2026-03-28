@@ -4,7 +4,6 @@ import { getDatabase, setDatabaseStatus, softDeleteDatabase, updateServiceSecret
 import { randomBytes } from "crypto";
 import fs from "fs";
 import { NextResponse } from "next/server";
-import { execSync } from "child_process";
 
 interface Params {
   params: Promise<{ name: string }>;
@@ -71,23 +70,10 @@ export async function PATCH(req: Request, { params }: Params) {
         return NextResponse.json({ error: "Database file not found" }, { status: 404 });
       }
 
-      // First, get list of all tables
-      const tablesOutput = execSync(`sqlite3 "${filePath}" "SELECT name FROM sqlite_master WHERE type='table' AND name NOT LIKE 'sqlite_%';"`, {
-        encoding: "utf-8",
-        stdio: "pipe",
-      });
-      
-      const tables = tablesOutput.trim().split("\n").filter(t => t.length > 0);
-      
-      if (tables.length > 0) {
-        // Drop each table
-        const dropStatements = tables.map(table => `DROP TABLE IF EXISTS "${table}";`).join(" ");
-        execSync(`sqlite3 "${filePath}" "${dropStatements}"`, {
-          stdio: "pipe",
-        });
-      }
+      // Delete the database file - SQLite will recreate it on next access
+      fs.unlinkSync(filePath);
 
-      logger.info(`[db] Database "${name}" reset — all ${tables.length} table(s) dropped`);
+      logger.info(`[db] Database "${name}" reset — file deleted and will be recreated`);
       return NextResponse.json({ success: true });
     } catch (error) {
       logger.error(`[db] reset_db "${name}" failed:`, error);
