@@ -31,6 +31,8 @@ export default function DbSettingsPage({
   const [statusLoading, setStatusLoading] = useState(false);
   const [confirmDropInput, setConfirmDropInput] = useState("");
   const [dropLoading, setDropLoading] = useState(false);
+  const [confirmReset, setConfirmReset] = useState(false);
+  const [resetLoading, setResetLoading] = useState(false);
 
   const loadDb = useCallback(() => {
     fetch(`/api/db/${name}`)
@@ -98,6 +100,24 @@ export default function DbSettingsPage({
       return;
     }
     router.push("/");
+  }
+
+  async function handleResetDatabase() {
+    setResetLoading(true);
+    setError("");
+    const res = await fetch(`/api/db/${name}`, {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ action: "reset_db" }),
+    });
+    setResetLoading(false);
+    if (!res.ok) {
+      const data = await res.json().catch(() => ({}));
+      setError(data.error ?? "Failed to reset database");
+      return;
+    }
+    setConfirmReset(false);
+    loadDb();
   }
 
   async function handleToggleStatus() {
@@ -309,32 +329,72 @@ export default function DbSettingsPage({
         {/* Danger zone */}
         <div className="border border-red-900/60 rounded-lg p-5 mt-4">
           <h2 className="text-sm font-medium text-red-400 mb-1">Danger zone</h2>
-          <p className="text-xs text-neutral-400 mb-4">
-            Permanently drop this database and all its data. This action{" "}
-            <span className="text-white font-medium">cannot be undone</span>.
-            The database file will be deleted from disk.
-          </p>
-          <p className="text-xs text-neutral-400 mb-2">
-            Type{" "}
-            <span className="font-mono text-white">{name}</span>{" "}
-            to confirm:
-          </p>
-          <input
-            type="text"
-            value={confirmDropInput}
-            onChange={(e) => setConfirmDropInput(e.target.value)}
-            placeholder={name}
-            className="w-full text-sm bg-neutral-900 border border-neutral-700 rounded px-3 py-2 text-white placeholder:text-neutral-600 outline-none focus:border-red-700 mb-3"
-          />
-          <button
-            onClick={handleDropDatabase}
-            disabled={confirmDropInput !== name || dropLoading}
-            className="text-sm px-4 py-2 rounded bg-red-700 text-white hover:bg-red-600 transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
-          >
-            {dropLoading ? "Dropping…" : "Drop database"}
-          </button>
+          
+          {/* Reset DB section */}
+          <div className="mb-6 pb-6 border-b border-red-900/30">
+            <h3 className="text-sm font-medium text-red-300 mb-1">Reset database</h3>
+            <p className="text-xs text-neutral-400 mb-3">
+              Remove all tables from this database. This action{" "}
+              <span className="text-white font-medium">cannot be undone</span>, but the database file will remain.
+            </p>
+            {!confirmReset ? (
+              <button
+                onClick={() => setConfirmReset(true)}
+                className="text-sm px-4 py-2 rounded border border-red-600 text-red-400 hover:border-red-500 hover:text-red-300 transition-colors"
+              >
+                Reset database
+              </button>
+            ) : (
+              <div className="flex items-center gap-2">
+                <span className="text-xs text-neutral-400">Are you sure? This will delete all tables.</span>
+                <button
+                  onClick={handleResetDatabase}
+                  disabled={resetLoading}
+                  className="text-sm px-3 py-1.5 rounded bg-red-900 text-red-200 hover:bg-red-800 transition-colors disabled:opacity-50"
+                >
+                  {resetLoading ? "Resetting…" : "Yes, reset"}
+                </button>
+                <button
+                  onClick={() => setConfirmReset(false)}
+                  className="text-sm px-3 py-1.5 rounded border border-neutral-700 text-neutral-400 hover:text-white transition-colors"
+                >
+                  Cancel
+                </button>
+              </div>
+            )}
+          </div>
+
+          {/* Drop DB section */}
+          <div>
+            <h3 className="text-sm font-medium text-red-300 mb-1">Delete database</h3>
+            <p className="text-xs text-neutral-400 mb-3">
+              Permanently drop this database and all its data.{" "}
+              <span className="text-white font-medium">This cannot be undone</span>.
+              The database file will be deleted from disk.
+            </p>
+            <p className="text-xs text-neutral-400 mb-2">
+              Type{" "}
+              <span className="font-mono text-white">{name}</span>{" "}
+              to confirm:
+            </p>
+            <input
+              type="text"
+              value={confirmDropInput}
+              onChange={(e) => setConfirmDropInput(e.target.value)}
+              placeholder={name}
+              className="w-full text-sm bg-neutral-900 border border-neutral-700 rounded px-3 py-2 text-white placeholder:text-neutral-600 outline-none focus:border-red-700 mb-3"
+            />
+            <button
+              onClick={handleDropDatabase}
+              disabled={confirmDropInput !== name || dropLoading}
+              className="text-sm px-4 py-2 rounded bg-red-700 text-white hover:bg-red-600 transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
+            >
+              {dropLoading ? "Dropping…" : "Drop database"}
+            </button>
+          </div>
+          
           {error && (
-            <p className="text-xs text-red-400 mt-2">{error}</p>
+            <p className="text-xs text-red-400 mt-3">{error}</p>
           )}
         </div>
       </div>

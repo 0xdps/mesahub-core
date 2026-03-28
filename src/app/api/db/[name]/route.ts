@@ -4,6 +4,7 @@ import { getDatabase, setDatabaseStatus, softDeleteDatabase, updateServiceSecret
 import { randomBytes } from "crypto";
 import fs from "fs";
 import { NextResponse } from "next/server";
+import { execSync } from "child_process";
 
 interface Params {
   params: Promise<{ name: string }>;
@@ -60,6 +61,29 @@ export async function PATCH(req: Request, { params }: Params) {
     setDatabaseStatus(name, status);
     logger.info(`[db] Status set to "${status}" for "${name}"`);
     return NextResponse.json({ success: true, status });
+  }
+
+  if (action === "reset_db") {
+    try {
+      const filePath = getDbPath(name);
+      if (!fs.existsSync(filePath)) {
+        logger.warn(`[db] reset_db "${name}" — database file not found`);
+        return NextResponse.json({ error: "Database file not found" }, { status: 404 });
+      }
+
+      execSync(`sqlite3 "${filePath}" "SELECT name FROM sqlite_master WHERE type='table';" | awk '{print "DROP TABLE IF EXISTS " $1 " CASCADE;"}' | sqlite3 "${filePath}"`, {
+        stdio: "pipe",
+      });
+
+      logger.info(`[db] Database "${name}" reset — all tables dropped`);
+      return NextResponse.json({ success: true });
+    } catch (error) {
+      logger.error(`[db] reset_db "${name}" failed:`, error);
+      return NextResponse.json(
+        { error: "Failed to reset database" },
+        { status: 500 }
+      );
+    }
   }
 
   logger.warn(`[db] PATCH "${name}" — invalid action: "${action}"`);
