@@ -321,18 +321,18 @@ export default function TableDataWindow({
         ) : null}
       </div>
       {stat && data && (
-        <div className="flex h-12 shrink-0 justify-between border-t">
-          <div className="flex items-center p-1 px-2">
+        <div className="flex min-h-12 shrink-0 flex-wrap justify-between border-t py-2 px-2">
+          <div className="flex items-center gap-2">
             <div>
               <ExportResultButton data={data} />
             </div>
             <ResultStats stats={stat} />
           </div>
-          <div className="p-1 pr-3">
+          <div className="flex items-center">
             <AggregateResultButton data={data} />
           </div>
 
-          <div className="mr-3 flex items-center gap-2">
+          <div className="flex items-center gap-2">
             <Button
               variant={"secondary"}
               size={"sm"}

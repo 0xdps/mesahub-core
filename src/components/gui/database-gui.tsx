@@ -198,7 +198,7 @@ export default function DatabaseGui() {
   }, [tabs, selectedTabIndex, previousLogTabKey]);
 
   return (
-    <div className={cn("flex h-screen w-screen flex-col", containerClassName)}>
+    <div className={cn("flex h-full w-full flex-col overflow-hidden", containerClassName)}>
       <ResizablePanelGroup direction="horizontal">
         <ResizablePanel minSize={5} defaultSize={defaultWidthPercentage}>
           <SidebarTab tabs={sidebarTabs} />

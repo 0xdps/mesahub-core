@@ -266,7 +266,7 @@ export default function WindowTabs({
               <div className="flex h-[40px] flex-1 border-b"></div>
             </div>
           </div>
-          <div className="relative grow">
+          <div className="relative grow overflow-hidden">
             {tabs.map((tab, tabIndex) => (
               <CurrentWindowTab.Provider
                 key={tab.key}
