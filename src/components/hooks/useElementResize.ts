@@ -2,7 +2,7 @@ import { useEffect } from "react";
 
 export default function useElementResize<T extends Element = Element>(
   callback: (element: T) => void,
-  ref: React.RefObject<T>
+  ref: React.RefObject<T | null>
 ) {
   useEffect(() => {
     if (ref.current) {
