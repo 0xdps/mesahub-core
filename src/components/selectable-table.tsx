@@ -11,7 +11,7 @@ import { cn } from "@/lib/utils";
 interface SelectableTableProps<T> {
   items: T[];
   extractKey: (item: T) => string;
-  renderRow: (item: T) => JSX.Element;
+  renderRow: (item: T) => React.JSX.Element;
   headers: { key: string; text: string; width?: number | string }[];
   selectedItems: T[];
   onSelectedItemChanged: (selectedItems: T[]) => void;

@@ -14,7 +14,7 @@ interface Props {
 export function QueryPlaceholder({
   placeholders,
   onChange,
-}: Props): JSX.Element {
+}: Props): React.JSX.Element {
   const placeholderCount = Object.keys(placeholders).length;
   const emptyPlaceholderCount = Object.values(placeholders).filter(
     (v) => v === ""

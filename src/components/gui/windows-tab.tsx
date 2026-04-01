@@ -32,7 +32,7 @@ import {
 import { SortableTab } from "./sortable-tab";
 
 export interface WindowTabItemProps {
-  component: JSX.Element;
+  component: React.JSX.Element;
   icon: LucideIcon;
   title: string;
   identifier: string;
