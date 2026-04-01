@@ -49,3 +49,4 @@ next-env.d.ts
 certificates
 # local dev DBs
 tmp-db/
+data/

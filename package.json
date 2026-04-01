@@ -13,6 +13,9 @@
   "overrides": {
     "@libsql/client": "^0.5.3"
   },
+  "pnpm": {
+    "onlyBuiltDependencies": ["better-sqlite3"]
+  },
   "dependencies": {
     "@sqlite-hub/ui": "^0.1.1",
     "@codemirror/lang-json": "^6.0.1",
