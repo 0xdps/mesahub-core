@@ -87,6 +87,19 @@ export async function middleware(req: NextRequest) {
     return applyCorsHeaders(req, continueResponse());
   }
 
+  // Server-to-server: ADMIN_TOKEN Bearer grants full admin access to API routes.
+  // The header was already stripped above so this cannot be forged externally.
+  const adminToken = process.env.ADMIN_TOKEN;
+  const authHeader = forwarded.get("authorization");
+  if (
+    adminToken &&
+    authHeader === `Bearer ${adminToken}` &&
+    rewrittenPathname.startsWith("/api/")
+  ) {
+    forwarded.set(ADMIN_SESSION_HEADER, "1");
+    return applyCorsHeaders(req, continueResponse());
+  }
+
   // DB-scoped routes: if session is valid, stamp the trusted header so route
   // handlers know this is an authenticated admin browser request.
   // Skip the session crypto entirely when a Bearer token is present — the

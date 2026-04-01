@@ -15,6 +15,7 @@ import path from "path";
 const NAME_REGEX = /^[a-z0-9_-]+$/;
 const MAX_USAGE = parseInt(process.env.MAX_VOLUME_USAGE_PERCENT ?? "85", 10);
 const DATA_PATH = process.env.DATA_PATH ?? "/data";
+const ADMIN_SESSION_HEADER = "x-sqlite-hub-admin";
 
 function withStats(record: DbRecord) {
   const filePath = getDbPath(record.name);
@@ -26,12 +27,19 @@ function withStats(record: DbRecord) {
   };
 }
 
-export async function GET() {
+export async function GET(req: Request) {
+  if (req.headers.get(ADMIN_SESSION_HEADER) !== "1") {
+    return NextResponse.json({ error: "Admin session required" }, { status: 401 });
+  }
   const rows = listDatabases().map(withStats);
   return NextResponse.json(rows);
 }
 
 export async function POST(req: Request) {
+  if (req.headers.get(ADMIN_SESSION_HEADER) !== "1") {
+    return NextResponse.json({ error: "Admin session required" }, { status: 401 });
+  }
+
   const body = await req.json().catch(() => null);
 
   if (!body || typeof body.name !== "string" || typeof body.owner !== "string") {
