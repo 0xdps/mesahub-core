@@ -63,6 +63,25 @@ export function getRegistry(): Database.Database {
   if (!cols.some((c) => c.name === "deleted_at")) {
     _registry.exec("ALTER TABLE databases ADD COLUMN deleted_at DATETIME");
   }
+
+  // Auto-provision the control database only when explicitly opted in
+  const controlSecret = process.env.CONTROL_DB_SECRET;
+  const enableControlDb = (process.env.ENABLE_CONTROL_DB ?? 'false').toLowerCase() === 'true';
+  if (enableControlDb && controlSecret) {
+    const existing = _registry
+      .prepare("SELECT name, service_secret FROM databases WHERE name = 'control'")
+      .get() as { name: string; service_secret: string | null } | undefined;
+    if (!existing) {
+      _registry
+        .prepare("INSERT INTO databases (name, owner, description, service_secret) VALUES ('control', 'system', 'Control plane metadata database', ?)")
+        .run(controlSecret);
+    } else if (!existing.service_secret) {
+      _registry
+        .prepare("UPDATE databases SET service_secret = ? WHERE name = 'control'")
+        .run(controlSecret);
+    }
+  }
+
   return _registry;
 }
 
