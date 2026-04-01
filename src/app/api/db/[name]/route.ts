@@ -5,6 +5,13 @@ import { randomBytes } from "crypto";
 import fs from "fs";
 import { NextResponse } from "next/server";
 
+const ADMIN_SESSION_HEADER = "x-sqlite-hub-admin";
+
+function requireAdminSession(req: Request): NextResponse | null {
+  if (req.headers.get(ADMIN_SESSION_HEADER) === "1") return null;
+  return NextResponse.json({ error: "Admin session required" }, { status: 401 });
+}
+
 interface Params {
   params: Promise<{ name: string }>;
 }
@@ -28,6 +35,9 @@ export async function GET(_req: Request, { params }: Params) {
 }
 
 export async function PATCH(req: Request, { params }: Params) {
+  const authError = requireAdminSession(req);
+  if (authError) return authError;
+
   const { name } = await params;
   const record = getDatabase(name);
   if (!record) {
@@ -88,7 +98,10 @@ export async function PATCH(req: Request, { params }: Params) {
   return NextResponse.json({ error: "Invalid action" }, { status: 400 });
 }
 
-export async function DELETE(_req: Request, { params }: Params) {
+export async function DELETE(req: Request, { params }: Params) {
+  const authError = requireAdminSession(req);
+  if (authError) return authError;
+
   const { name } = await params;
   const record = getDatabase(name);
   if (!record) {
