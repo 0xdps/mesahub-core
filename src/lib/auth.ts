@@ -1,4 +1,7 @@
-import { timingSafeEqual } from "crypto";
+import { createHash, timingSafeEqual } from "crypto";
+import fs from "fs";
+import path from "path";
+import BetterSqlite3 from "better-sqlite3";
 import { NextResponse } from "next/server";
 import type { DbRecord } from "./registry";
 
@@ -61,8 +64,42 @@ export function isInternalRequest(req: Request): boolean {
  *
  * NOTE: ADMIN_TOKEN is intentionally NOT accepted here. It is only valid at
  * the /api/auth/login endpoint to obtain a session cookie. All programmatic
- * access must use a per-DB service_secret.
+ * access must use a per-DB service_secret or a user-scoped shs_ API key.
  */
+
+/**
+ * Validates an `shs_` API key against the control database.
+ * Returns the owning user_id if valid, null otherwise.
+ * Also updates last_used_at on successful validation.
+ */
+function validateApiKey(keyValue: string): string | null {
+  try {
+    const DATA_PATH = process.env.DATA_PATH ?? "/data";
+    const controlDbPath = path.join(DATA_PATH, "control.db");
+    if (!fs.existsSync(controlDbPath)) return null;
+
+    const db = new BetterSqlite3(controlDbPath);
+    const keyHash = createHash("sha256").update(keyValue).digest("hex");
+
+    const row = db
+      .prepare("SELECT id, user_id FROM api_keys WHERE key_hash = ? AND status = 'active'")
+      .get(keyHash) as { id: string; user_id: string } | undefined;
+
+    if (!row) {
+      db.close();
+      return null;
+    }
+
+    // Stamp last_used_at
+    db.prepare("UPDATE api_keys SET last_used_at = datetime('now') WHERE id = ?").run(row.id);
+    const userId = row.user_id;
+    db.close();
+    return userId;
+  } catch {
+    return null;
+  }
+}
+
 export function authorizeDbRequest(req: Request, record: DbRecord): NextResponse | null {
   // Rule 1: admin browser session (header stamped by middleware, forgery-stripped)
   if (req.headers.get(ADMIN_SESSION_HEADER) === "1") return null;
@@ -74,8 +111,15 @@ export function authorizeDbRequest(req: Request, record: DbRecord): NextResponse
 
   const bearer = extractBearer(req);
 
+  // Rule: shs_ API keys — user-scoped, valid for any DB owned by that user
+  if (bearer?.startsWith("shs_")) {
+    const userId = validateApiKey(bearer);
+    if (userId && record.owner === userId) return null;
+    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  }
+
   if (record.service_secret) {
-    // Rule 2 & 3
+    // Rule 2 & 3: per-DB service secret
     if (bearer && timingSafeMatch(bearer, record.service_secret)) return null;
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
