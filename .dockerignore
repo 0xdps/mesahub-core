@@ -4,7 +4,8 @@ node_modules
 .github
 tmp-db
 docs
-packages
 *.md
 *.log
 .env*
+server/cmd/server/server
+server/**/*.test.go

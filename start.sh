@@ -137,8 +137,8 @@ else
     echo "Starting Next.js server on port $BACKEND_PORT..."
     
     # Check if server.js exists
-    if [ ! -f /app/server.js ]; then
-        echo "❌ Error: server.js not found at /app/server.js"
+    if [ ! -f /app/nextjs/server.js ]; then
+        echo "❌ Error: server.js not found at /app/nextjs/server.js"
         echo "Checking alternative locations..."
         find /app -name "server.js" -type f 2>/dev/null || echo "No server.js found anywhere in /app"
         exit 1
@@ -148,7 +148,7 @@ else
     # shell or Caddy would try to bind the same port as Next.js.
     # HOSTNAME=0.0.0.0 ensures Next.js binds to all interfaces (not just the
     # container hostname), so curl http://localhost:$BACKEND_PORT succeeds.
-    PORT=$BACKEND_PORT HOSTNAME=0.0.0.0 node /app/server.js &
+    PORT=$BACKEND_PORT HOSTNAME=0.0.0.0 node /app/nextjs/server.js &
     BACKEND_PID=$!
     
     # Wait for backend to be ready (quicker for prod)

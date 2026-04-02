@@ -1,0 +1,38 @@
+// Package middleware provides shared HTTP middleware for the Go service.
+package middleware
+
+import (
+	"net/http"
+	"time"
+
+	"github.com/go-chi/chi/v5/middleware"
+	"github.com/rs/zerolog/log"
+)
+
+// Logger returns a chi-compatible zerolog request-logging middleware.
+func Logger(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		start := time.Now()
+		ww := middleware.NewWrapResponseWriter(w, r.ProtoMajor)
+		next.ServeHTTP(ww, r)
+		log.Info().
+			Str("method", r.Method).
+			Str("path", r.URL.Path).
+			Int("status", ww.Status()).
+			Int("bytes", ww.BytesWritten()).
+			Dur("latency", time.Since(start)).
+			Str("remote", r.RemoteAddr).
+			Msg("request")
+	})
+}
+
+// StripInternalHeaders removes headers that the Go service uses internally
+// so that external clients cannot spoof them.
+func StripInternalHeaders(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		r.Header.Del("X-Sqlite-Hub-Admin")
+		r.Header.Del("X-Sqlite-Hub-User-Id")
+		r.Header.Del("X-Internal-Request")
+		next.ServeHTTP(w, r)
+	})
+}
