@@ -51,16 +51,80 @@ if [ "$NODE_ENV" = "development" ]; then
     echo "✅ Dev server ready with hot reload enabled"
     
     # Generate Caddyfile for reverse proxy
+    CONTROL_ENABLED_VAL="${ENABLE_CONTROL_DB:-false}"
     cat > /tmp/Caddyfile <<EOF
 {
 	auto_https off
 	admin off
 }
 
+# ── api.* subdomain — clean API URLs, path rewrite, file acceleration ─────────
+api.mesahub.app:$PORT {
+$(if [ "$(echo "$CONTROL_ENABLED_VAL" | tr '[:upper:]' '[:lower:]')" != "true" ]; then
+echo '	respond "Service not available" 503'
+else
+cat <<'APIBLOCK'
+	@double_slash path_regexp dslash ^//(.*)$
+	rewrite @double_slash /{http.regexp.dslash.1}
+
+	# Rewrite clean paths: /db/name/query → /api/db/name/query
+	@no_api_prefix {
+		not path /api/*
+		not path /_next/*
+	}
+	rewrite @no_api_prefix /api{uri}
+
+	# File operations with X-Sendfile acceleration
+	handle /api/db/*/files/* {
+		reverse_proxy localhost:BACKEND_PORT_PLACEHOLDER {
+			header_up X-Forwarded-For {remote_host}
+			@sendfile header X-Sendfile *
+			handle_response @sendfile {
+				header {
+					Content-Type {http.reverse_proxy.header.Content-Type}
+					Content-Disposition {http.reverse_proxy.header.Content-Disposition}
+					ETag {http.reverse_proxy.header.ETag}
+					X-Content-Hash {http.reverse_proxy.header.X-Content-Hash}
+					Vary {http.reverse_proxy.header.Vary}
+					Access-Control-Allow-Origin {http.reverse_proxy.header.Access-Control-Allow-Origin}
+					Access-Control-Allow-Methods {http.reverse_proxy.header.Access-Control-Allow-Methods}
+					Access-Control-Allow-Headers {http.reverse_proxy.header.Access-Control-Allow-Headers}
+					-X-Sendfile
+				}
+				root * /data/files/blobs
+				rewrite * {http.reverse_proxy.header.X-Sendfile}
+				file_server
+			}
+		}
+	}
+
+	handle {
+		reverse_proxy localhost:BACKEND_PORT_PLACEHOLDER
+	}
+APIBLOCK
+fi)
+}
+
+# ── admin.* subdomain — dashboard only, no API access ─────────────────────────
+admin.mesahub.app:$PORT {
+$(if [ "$(echo "$CONTROL_ENABLED_VAL" | tr '[:upper:]' '[:lower:]')" != "true" ]; then
+echo '	respond "Service not available" 503'
+else
+cat <<'ADMINBLOCK'
+	# Block direct API calls on admin subdomain
+	handle /api/* {
+		respond "Not found" 404
+	}
+
+	handle {
+		reverse_proxy localhost:BACKEND_PORT_PLACEHOLDER
+	}
+ADMINBLOCK
+fi)
+}
+
+# ── Default — all other hostnames / direct IP access ──────────────────────────
 :$PORT {
-	# Silently normalize double leading slashes (e.g. //foo → /foo).
-	# Without this, Caddy issues a redirect which strips CORS headers and
-	# breaks preflight requests from cross-origin clients.
 	@double_slash path_regexp dslash ^//(.*)$
 	rewrite @double_slash /{http.regexp.dslash.1}
 
@@ -70,10 +134,6 @@ if [ "$NODE_ENV" = "development" ]; then
 			header_up X-Forwarded-For {remote_host}
 			@sendfile header X-Sendfile *
 			handle_response @sendfile {
-				# Copy metadata headers from upstream; do NOT copy Content-Length —
-				# the upstream body is empty (X-Sendfile pattern) so Content-Length
-				# would lie and cause Caddy to stall waiting for bytes. file_server
-				# sets the correct Content-Length from the actual file on disk.
 				header {
 					Content-Type {http.reverse_proxy.header.Content-Type}
 					Content-Disposition {http.reverse_proxy.header.Content-Disposition}
@@ -121,7 +181,10 @@ if [ "$NODE_ENV" = "development" ]; then
 	}
 }
 EOF
-    
+
+    # Replace BACKEND_PORT_PLACEHOLDER with the actual port value
+    sed -i "s/BACKEND_PORT_PLACEHOLDER/$BACKEND_PORT/g" /tmp/Caddyfile
+
     echo "Starting Caddy reverse proxy on port $PORT..."
     caddy fmt --overwrite /tmp/Caddyfile
     caddy run --config /tmp/Caddyfile
@@ -168,12 +231,79 @@ else
     echo "✅ Backend ready on port $BACKEND_PORT"
     
     # Generate Caddyfile for reverse proxy
+    CONTROL_ENABLED_VAL="${ENABLE_CONTROL_DB:-false}"
     cat > /tmp/Caddyfile <<EOF
 {
 	auto_https off
 	admin off
 }
 
+# ── api.* subdomain — clean API URLs, path rewrite, file acceleration ─────────
+api.mesahub.app:$PORT {
+$(if [ "$(echo "$CONTROL_ENABLED_VAL" | tr '[:upper:]' '[:lower:]')" != "true" ]; then
+echo '	respond "Service not available" 503'
+else
+cat <<'APIBLOCK'
+	@double_slash path_regexp dslash ^//(.*)$
+	rewrite @double_slash /{http.regexp.dslash.1}
+
+	# Rewrite clean paths: /db/name/query → /api/db/name/query
+	@no_api_prefix {
+		not path /api/*
+		not path /_next/*
+	}
+	rewrite @no_api_prefix /api{uri}
+
+	# File operations with X-Sendfile acceleration
+	handle /api/db/*/files/* {
+		reverse_proxy localhost:BACKEND_PORT_PLACEHOLDER {
+			header_up X-Forwarded-For {remote_host}
+			@sendfile header X-Sendfile *
+			handle_response @sendfile {
+				header {
+					Content-Type {http.reverse_proxy.header.Content-Type}
+					Content-Disposition {http.reverse_proxy.header.Content-Disposition}
+					ETag {http.reverse_proxy.header.ETag}
+					X-Content-Hash {http.reverse_proxy.header.X-Content-Hash}
+					Vary {http.reverse_proxy.header.Vary}
+					Access-Control-Allow-Origin {http.reverse_proxy.header.Access-Control-Allow-Origin}
+					Access-Control-Allow-Methods {http.reverse_proxy.header.Access-Control-Allow-Methods}
+					Access-Control-Allow-Headers {http.reverse_proxy.header.Access-Control-Allow-Headers}
+					-X-Sendfile
+				}
+				root * /data/files/blobs
+				rewrite * {http.reverse_proxy.header.X-Sendfile}
+				file_server
+			}
+		}
+	}
+
+	handle {
+		reverse_proxy localhost:BACKEND_PORT_PLACEHOLDER
+	}
+APIBLOCK
+fi)
+}
+
+# ── admin.* subdomain — dashboard only, no API access ─────────────────────────
+admin.mesahub.app:$PORT {
+$(if [ "$(echo "$CONTROL_ENABLED_VAL" | tr '[:upper:]' '[:lower:]')" != "true" ]; then
+echo '	respond "Service not available" 503'
+else
+cat <<'ADMINBLOCK'
+	# Block direct API calls on admin subdomain
+	handle /api/* {
+		respond "Not found" 404
+	}
+
+	handle {
+		reverse_proxy localhost:BACKEND_PORT_PLACEHOLDER
+	}
+ADMINBLOCK
+fi)
+}
+
+# ── Default — all other hostnames / direct IP access ──────────────────────────
 :$PORT {
 	# Silently normalize double leading slashes (e.g. //foo → /foo).
 	# Without this, Caddy issues a redirect which strips CORS headers and
@@ -238,6 +368,9 @@ else
 	}
 }
 EOF
+
+    # Replace BACKEND_PORT_PLACEHOLDER with the actual port value
+    sed -i "s/BACKEND_PORT_PLACEHOLDER/$BACKEND_PORT/g" /tmp/Caddyfile
     
     echo "Formatting Caddyfile..."
     caddy fmt --overwrite /tmp/Caddyfile
