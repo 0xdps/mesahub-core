@@ -53,78 +53,75 @@ if [ "$NODE_ENV" = "development" ]; then
     # Generate Caddyfile for reverse proxy (sequential appends — safe in /bin/sh)
     CONTROL_ENABLED_VAL="$(echo "${ENABLE_CONTROL_DB:-false}" | tr '[:upper:]' '[:lower:]')"
 
-    # ── Global options ────────────────────────────────────────────────────────
+    # ── Global options + open single :$PORT site block ────────────────────────
     cat > /tmp/Caddyfile <<EOF
 {
 	auto_https off
 	admin off
 }
-EOF
-
-    # ── Subdomain blocks — only added when ENABLE_CONTROL_DB=true ─────────────
-    if [ "$CONTROL_ENABLED_VAL" = "true" ]; then
-        cat >> /tmp/Caddyfile <<EOF
-
-api.mesahub.app:$PORT {
-	@double_slash path_regexp dslash ^//(.*)$
-	rewrite @double_slash /{http.regexp.dslash.1}
-
-	@no_api_prefix {
-		not path /api/*
-		not path /_next/*
-	}
-	rewrite @no_api_prefix /api{uri}
-
-	handle /api/db/*/files/* {
-		reverse_proxy localhost:$BACKEND_PORT {
-			@sendfile header X-Sendfile *
-			handle_response @sendfile {
-				header {
-					Content-Type {http.reverse_proxy.header.Content-Type}
-					Content-Disposition {http.reverse_proxy.header.Content-Disposition}
-					ETag {http.reverse_proxy.header.ETag}
-					X-Content-Hash {http.reverse_proxy.header.X-Content-Hash}
-					Vary {http.reverse_proxy.header.Vary}
-					Access-Control-Allow-Origin {http.reverse_proxy.header.Access-Control-Allow-Origin}
-					Access-Control-Allow-Methods {http.reverse_proxy.header.Access-Control-Allow-Methods}
-					Access-Control-Allow-Headers {http.reverse_proxy.header.Access-Control-Allow-Headers}
-					-X-Sendfile
-				}
-				root * /data/files/blobs
-				rewrite * {http.reverse_proxy.header.X-Sendfile}
-				file_server
-			}
-		}
-	}
-
-	handle {
-		reverse_proxy localhost:$BACKEND_PORT
-	}
-}
-
-admin.mesahub.app:$PORT {
-	handle /api/* {
-		respond "Not found" 404
-	}
-
-	handle {
-		reverse_proxy localhost:$BACKEND_PORT
-	}
-}
-EOF
-    fi
-
-    # ── Default catch-all ─────────────────────────────────────────────────────
-    cat >> /tmp/Caddyfile <<EOF
 
 :$PORT {
-	# Caddy-native health check — responds before Next.js is involved
 	handle /health {
 		respond 200
 	}
 
 	@double_slash path_regexp dslash ^//(.*)$
 	rewrite @double_slash /{http.regexp.dslash.1}
+EOF
+
+    # ── Subdomain host matchers — only added when ENABLE_CONTROL_DB=true ──────
+    if [ "$CONTROL_ENABLED_VAL" = "true" ]; then
+        cat >> /tmp/Caddyfile <<EOF
+
+	@api_host host api.mesahub.app
+	handle @api_host {
+		@no_api_prefix {
+			not path /api/*
+			not path /_next/*
+		}
+		rewrite @no_api_prefix /api{uri}
+
+		handle /api/db/*/files/* {
+			reverse_proxy localhost:$BACKEND_PORT {
+				@sendfile header X-Sendfile *
+				handle_response @sendfile {
+					header {
+						Content-Type {http.reverse_proxy.header.Content-Type}
+						Content-Disposition {http.reverse_proxy.header.Content-Disposition}
+						ETag {http.reverse_proxy.header.ETag}
+						X-Content-Hash {http.reverse_proxy.header.X-Content-Hash}
+						Vary {http.reverse_proxy.header.Vary}
+						Access-Control-Allow-Origin {http.reverse_proxy.header.Access-Control-Allow-Origin}
+						Access-Control-Allow-Methods {http.reverse_proxy.header.Access-Control-Allow-Methods}
+						Access-Control-Allow-Headers {http.reverse_proxy.header.Access-Control-Allow-Headers}
+						-X-Sendfile
+					}
+					root * /data/files/blobs
+					rewrite * {http.reverse_proxy.header.X-Sendfile}
+					file_server
+				}
+			}
+		}
+
+		handle {
+			reverse_proxy localhost:$BACKEND_PORT
+		}
+	}
+
+	@admin_host host admin.mesahub.app
+	handle @admin_host {
+		handle /api/* {
+			respond "Not found" 404
+		}
+		handle {
+			reverse_proxy localhost:$BACKEND_PORT
+		}
+	}
+EOF
+    fi
+
+    # ── Fallback: Railway URL, direct IP, all other hosts ─────────────────────
+    cat >> /tmp/Caddyfile <<EOF
 
 	handle /api/db/*/files/* {
 		reverse_proxy localhost:$BACKEND_PORT {
@@ -238,91 +235,80 @@ else
     # Generate Caddyfile for reverse proxy (sequential appends — safe in /bin/sh)
     CONTROL_ENABLED_VAL="$(echo "${ENABLE_CONTROL_DB:-false}" | tr '[:upper:]' '[:lower:]')"
 
-    # ── Global options ────────────────────────────────────────────────────────
+    # ── Global options + open single :$PORT site block ────────────────────────
     cat > /tmp/Caddyfile <<EOF
 {
 	auto_https off
 	admin off
 }
-EOF
-
-    # ── Subdomain blocks — only added when ENABLE_CONTROL_DB=true ─────────────
-    if [ "$CONTROL_ENABLED_VAL" = "true" ]; then
-        cat >> /tmp/Caddyfile <<EOF
-
-api.mesahub.app:$PORT {
-	@double_slash path_regexp dslash ^//(.*)$
-	rewrite @double_slash /{http.regexp.dslash.1}
-
-	@no_api_prefix {
-		not path /api/*
-		not path /_next/*
-	}
-	rewrite @no_api_prefix /api{uri}
-
-	handle /api/db/*/files/* {
-		reverse_proxy localhost:$BACKEND_PORT {
-			@sendfile header X-Sendfile *
-			handle_response @sendfile {
-				header {
-					Content-Type {http.reverse_proxy.header.Content-Type}
-					Content-Disposition {http.reverse_proxy.header.Content-Disposition}
-					ETag {http.reverse_proxy.header.ETag}
-					X-Content-Hash {http.reverse_proxy.header.X-Content-Hash}
-					Vary {http.reverse_proxy.header.Vary}
-					Access-Control-Allow-Origin {http.reverse_proxy.header.Access-Control-Allow-Origin}
-					Access-Control-Allow-Methods {http.reverse_proxy.header.Access-Control-Allow-Methods}
-					Access-Control-Allow-Headers {http.reverse_proxy.header.Access-Control-Allow-Headers}
-					-X-Sendfile
-				}
-				root * /data/files/blobs
-				rewrite * {http.reverse_proxy.header.X-Sendfile}
-				file_server
-			}
-		}
-	}
-
-	handle {
-		reverse_proxy localhost:$BACKEND_PORT
-	}
-}
-
-admin.mesahub.app:$PORT {
-	handle /api/* {
-		respond "Not found" 404
-	}
-
-	handle {
-		reverse_proxy localhost:$BACKEND_PORT
-	}
-}
-EOF
-    fi
-
-    # ── Default catch-all ─────────────────────────────────────────────────────
-    cat >> /tmp/Caddyfile <<EOF
 
 :$PORT {
-	# Caddy-native health check — responds before Next.js is involved
 	handle /health {
 		respond 200
 	}
 
-	# Silently normalize double leading slashes (e.g. //foo → /foo).
-	# Without this, Caddy issues a redirect which strips CORS headers and
-	# breaks preflight requests from cross-origin clients.
 	@double_slash path_regexp dslash ^//(.*)$
 	rewrite @double_slash /{http.regexp.dslash.1}
+EOF
 
-	# API routes and file operations with X-Sendfile acceleration
+    # ── Subdomain host matchers — only added when ENABLE_CONTROL_DB=true ──────
+    if [ "$CONTROL_ENABLED_VAL" = "true" ]; then
+        cat >> /tmp/Caddyfile <<EOF
+
+	@api_host host api.mesahub.app
+	handle @api_host {
+		@no_api_prefix {
+			not path /api/*
+			not path /_next/*
+		}
+		rewrite @no_api_prefix /api{uri}
+
+		handle /api/db/*/files/* {
+			reverse_proxy localhost:$BACKEND_PORT {
+				@sendfile header X-Sendfile *
+				handle_response @sendfile {
+					header {
+						Content-Type {http.reverse_proxy.header.Content-Type}
+						Content-Disposition {http.reverse_proxy.header.Content-Disposition}
+						ETag {http.reverse_proxy.header.ETag}
+						X-Content-Hash {http.reverse_proxy.header.X-Content-Hash}
+						Vary {http.reverse_proxy.header.Vary}
+						Access-Control-Allow-Origin {http.reverse_proxy.header.Access-Control-Allow-Origin}
+						Access-Control-Allow-Methods {http.reverse_proxy.header.Access-Control-Allow-Methods}
+						Access-Control-Allow-Headers {http.reverse_proxy.header.Access-Control-Allow-Headers}
+						-X-Sendfile
+					}
+					root * /data/files/blobs
+					rewrite * {http.reverse_proxy.header.X-Sendfile}
+					file_server
+				}
+			}
+		}
+
+		handle {
+			reverse_proxy localhost:$BACKEND_PORT
+		}
+	}
+
+	@admin_host host admin.mesahub.app
+	handle @admin_host {
+		handle /api/* {
+			respond "Not found" 404
+		}
+		handle {
+			reverse_proxy localhost:$BACKEND_PORT
+		}
+	}
+EOF
+    fi
+
+    # ── Fallback: Railway URL, direct IP, all other hosts ─────────────────────
+    cat >> /tmp/Caddyfile <<EOF
+
 	handle /api/db/*/files/* {
 		reverse_proxy localhost:$BACKEND_PORT {
 			@sendfile header X-Sendfile *
 			handle_response @sendfile {
-				# Copy metadata headers from upstream; do NOT copy Content-Length —
-				# the upstream body is empty (X-Sendfile pattern) so Content-Length
-				# would lie and cause Caddy to stall waiting for bytes. file_server
-				# sets the correct Content-Length from the actual file on disk.
 				header {
 					Content-Type {http.reverse_proxy.header.Content-Type}
 					Content-Disposition {http.reverse_proxy.header.Content-Disposition}
