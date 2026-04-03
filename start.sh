@@ -110,12 +110,7 @@ EOF
 
 	@admin_host host admin.mesahub.app
 	handle @admin_host {
-		handle /api/* {
-			respond "Not found" 404
-		}
-		handle {
-			reverse_proxy localhost:$BACKEND_PORT
-		}
+		reverse_proxy localhost:$BACKEND_PORT
 	}
 EOF
     fi
@@ -292,12 +287,7 @@ EOF
 
 	@admin_host host admin.mesahub.app
 	handle @admin_host {
-		handle /api/* {
-			respond "Not found" 404
-		}
-		handle {
-			reverse_proxy localhost:$BACKEND_PORT
-		}
+		reverse_proxy localhost:$BACKEND_PORT
 	}
 EOF
     fi
