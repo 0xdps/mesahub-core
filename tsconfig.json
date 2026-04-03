@@ -38,6 +38,10 @@
   "exclude": [
     "node_modules",
     "sqlite-db-client",
-    "packages"
+    "packages",
+    "**/*.test.ts",
+    "**/*.test.tsx",
+    "**/*.spec.ts",
+    "**/*.spec.tsx"
   ]
 }

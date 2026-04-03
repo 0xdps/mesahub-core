@@ -38,26 +38,3 @@ jobs:
 
       - name: Log success
         run: echo "✅ Success!"
-
-  client-build:
-    name: Client SDK Build
-    runs-on: ubuntu-latest
-    defaults:
-      run:
-        working-directory: packages/sqlite-hub-client
-    steps:
-      - name: Checkout code
-        uses: actions/checkout@v4
-
-      - uses: actions/setup-node@v3
-        with:
-          node-version: 20
-
-      - name: Install dependencies
-        run: npm install
-
-      - name: Build
-        run: npm run build
-
-      - name: Log success
-        run: echo "✅ Client SDK built!"
