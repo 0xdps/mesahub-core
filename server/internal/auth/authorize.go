@@ -1,5 +1,5 @@
 // Package auth — authorize.go contains DB-level access authorization helpers,
-// mirroring authorizeDbRequest / isInternalRequest / timingSafeMatch from auth.ts.
+// mirroring authorizeDbRequest / timingSafeMatch from auth.ts.
 package auth
 
 import (
@@ -7,7 +7,6 @@ import (
 	"crypto/subtle"
 	"database/sql"
 	"encoding/hex"
-	"net"
 	"net/http"
 	"os"
 	"path/filepath"
@@ -39,48 +38,6 @@ func TimingSafeMatch(a, b string) bool {
 	copy(bufA, a)
 	copy(bufB, b)
 	return subtle.ConstantTimeCompare(bufA, bufB) == 1
-}
-
-// IsInternalRequest returns true when the inferred client IP is a private /
-// loopback address (RFC1918, ::1, Railway ULA prefix fd::/8).
-func IsInternalRequest(r *http.Request) bool {
-	return isPrivateIP(clientIP(r))
-}
-
-func clientIP(r *http.Request) string {
-	if fwd := r.Header.Get("X-Forwarded-For"); fwd != "" {
-		return strings.TrimSpace(strings.SplitN(fwd, ",", 2)[0])
-	}
-	if ri := r.Header.Get("X-Real-IP"); ri != "" {
-		return strings.TrimSpace(ri)
-	}
-	host, _, err := net.SplitHostPort(r.RemoteAddr)
-	if err != nil {
-		return r.RemoteAddr
-	}
-	return host
-}
-
-func isPrivateIP(ip string) bool {
-	ip = strings.TrimPrefix(ip, "::ffff:")
-	if ip == "127.0.0.1" || ip == "::1" || ip == "localhost" {
-		return true
-	}
-	// Railway / Docker private network: ULA addresses start with fd
-	if len(ip) >= 3 && strings.EqualFold(ip[:2], "fd") {
-		return true
-	}
-	parsed := net.ParseIP(ip)
-	if parsed == nil {
-		return false
-	}
-	for _, cidr := range []string{"10.0.0.0/8", "172.16.0.0/12", "192.168.0.0/16"} {
-		_, network, _ := net.ParseCIDR(cidr)
-		if network.Contains(parsed) {
-			return true
-		}
-	}
-	return false
 }
 
 // ValidateAPIKey looks up an shs_ API key in control.db (control-mode only).
@@ -120,8 +77,7 @@ func ValidateAPIKey(dataPath, keyValue string) (string, bool) {
 //  2. DB inactive → 503
 //  3. shs_ API key matching owner → allowed
 //  4. Per-DB service_secret Bearer match → allowed
-//  5. No service_secret + internal IP (opt-in) → allowed
-//  6. Otherwise → 401 or 403
+//  5. Otherwise → 401 or 403
 //
 // Returns HTTP status 0 and "" when access is granted.
 func AuthorizeDB(r *http.Request, cfg *config.Config, record *db.DBRecord) (int, string) {
@@ -149,10 +105,6 @@ func AuthorizeDB(r *http.Request, cfg *config.Config, record *db.DBRecord) (int,
 		return http.StatusUnauthorized, "Unauthorized"
 	}
 
-	if strings.EqualFold(os.Getenv("ALLOW_INTERNAL_DB_ACCESS_WITHOUT_SECRET"), "true") &&
-		IsInternalRequest(r) {
-		return 0, ""
-	}
 	return http.StatusForbidden,
 		"Forbidden: this database has no service_secret — set a service_secret for API access"
 }

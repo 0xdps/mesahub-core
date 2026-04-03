@@ -308,6 +308,5 @@ Set the same `CONTROL_DB_SECRET` in the control plane's environment. On startup 
 - [ ] `ADMIN_TOKEN` is a strong random value (`openssl rand -hex 32`)
 - [ ] `SESSION_SECRET` is at least 32 characters, unique to this deployment
 - [ ] Volume is attached at `/data` — data survives deploys
-- [ ] `ALLOW_INTERNAL_DB_ACCESS_WITHOUT_SECRET=false` (default)
 - [ ] Each application service has its own `service_secret` (not the admin token)
 - [ ] `FILE_URL_SIGNING_SECRET` and `FILE_TOKEN_SIGNING_SECRET` set separately from `ADMIN_TOKEN` in production
