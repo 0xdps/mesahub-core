@@ -76,7 +76,7 @@ export async function POST(req: Request) {
     .get(name) as { id: number; status: string } | undefined;
 
   if (existing) {
-    logger.warn(`[db] Create failed — database "${name}" already exists`);
+    logger.info(`[db] Create skipped — database "${name}" already exists`);
     return NextResponse.json({ error: "Database already exists" }, { status: 409 });
   }
 
