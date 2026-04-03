@@ -10,6 +10,9 @@ function formatBytes(bytes: number): string {
   return `${(bytes / 1024 / 1024).toFixed(2)} MB`;
 }
 
+const FILE_STORAGE_ENABLED =
+  (process.env.ENABLE_FILE_STORAGE ?? "false").toLowerCase() === "true";
+
 export default function DashboardPage() {
   const dbs = listDatabases().map((d) => ({
     ...d,
@@ -111,12 +114,14 @@ export default function DashboardPage() {
                       >
                         Settings
                       </Link>
-                      <Link
-                        href={`/db/${db.name}/files`}
-                        className="text-xs text-emerald-400 hover:text-emerald-300"
-                      >
-                        Files
-                      </Link>
+                      {FILE_STORAGE_ENABLED && (
+                        <Link
+                          href={`/db/${db.name}/files`}
+                          className="text-xs text-emerald-400 hover:text-emerald-300"
+                        >
+                          Files
+                        </Link>
+                      )}
                       <Link
                         href={`/db/${db.name}`}
                         className="text-xs text-blue-400 hover:text-blue-300"

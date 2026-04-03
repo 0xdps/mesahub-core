@@ -104,9 +104,7 @@ func anySliceToDriverValues(bindings []any) []any {
 		return nil
 	}
 	out := make([]any, len(bindings))
-	for i, v := range bindings {
-		out[i] = v
-	}
+	copy(out, bindings)
 	return out
 }
 

@@ -15,6 +15,12 @@ const DB_SCOPED_PATTERN = /^\/api\/db\/[^/]+(?:\/.*)?$/;
 // Public file shortlink pattern: /{dbName}/file/{fileId}
 const FILE_SHORTLINK_PATTERN = /^\/[^/]+\/file\/[^/]+$/;
 
+// File-storage routes — API + admin UI page
+const FILE_API_PATTERN = /^\/api\/db\/[^/]+\/(?:files|tokens\/files)(?:\/.*)?$/;
+const ADMIN_FILES_PAGE_PATTERN = /^\/db\/[^/]+\/files(?:\/.*)?$/;
+const FILE_STORAGE_ENABLED =
+  (process.env.ENABLE_FILE_STORAGE ?? "false").toLowerCase() === "true";
+
 // Trusted internal header stamped by middleware after session verification.
 // Stripped from all incoming requests to prevent external forgery.
 export const ADMIN_SESSION_HEADER = "x-sqlite-hub-admin";
@@ -80,6 +86,20 @@ export async function middleware(req: NextRequest) {
 
   if (isPublic) {
     return applyCorsHeaders(req, continueResponse());
+  }
+
+  // File storage feature gate — return early before session checks
+  if (!FILE_STORAGE_ENABLED) {
+    if (FILE_API_PATTERN.test(rewrittenPathname)) {
+      return applyCorsHeaders(
+        req,
+        NextResponse.json({ error: "File storage is disabled" }, { status: 503 })
+      );
+    }
+    if (ADMIN_FILES_PAGE_PATTERN.test(rewrittenPathname)) {
+      const homeUrl = new URL("/", req.url);
+      return NextResponse.redirect(homeUrl);
+    }
   }
 
   // Public file shortlinks: allow without session, apply CORS
