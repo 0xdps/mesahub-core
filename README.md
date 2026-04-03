@@ -53,12 +53,64 @@ just dev-clean   # remove stale containers/orphans
 
 ## Railway deployment
 
-1. Create a service from this repository.
-2. Attach a persistent volume mounted at `/data`.
-3. Set required environment variables:
-	- `ADMIN_TOKEN`
-	- `SESSION_SECRET`
-4. Deploy using Dockerfile build (`railway.json`).
+### 1. Create the service
+
+Create a new Railway service from this repository. Railway will detect `railway.json` and use the Dockerfile build automatically.
+
+### 2. Attach a persistent volume
+
+In the service settings add a volume mounted at **`/data`**. All database files, the registry, and file blobs are stored here. Without a persistent volume data is lost on every deploy.
+
+### 3. Set environment variables
+
+**Required:**
+
+| Variable | Description | How to generate |
+|---|---|---|
+| `ADMIN_TOKEN` | Admin API + dashboard auth token | `openssl rand -hex 32` |
+| `SESSION_SECRET` | Iron-session cookie signing key (min 32 chars) | `openssl rand -hex 32` |
+| `FILE_URL_SIGNING_SECRET` | Signs presigned file URLs | `openssl rand -hex 32` |
+| `FILE_TOKEN_SIGNING_SECRET` | Signs file access tokens | `openssl rand -hex 32` |
+| `NODE_ENV` | Must be `production` | literal `production` |
+
+**Recommended:**
+
+| Variable | Default | Notes |
+|---|---|---|
+| `DATA_PATH` | `/data` | Must match the volume mount path |
+| `MAX_VOLUME_USAGE_PERCENT` | `85` | DB creation is blocked above this threshold |
+| `HOSTNAME` | `::` | Required for Railway private networking (IPv6-first) |
+| `ENABLE_FILE_STORAGE` | `true` | Set `false` to disable the file storage feature |
+| `ENABLE_FILE_PROXY_DELIVERY` | `true` | Caddy X-Sendfile acceleration for downloads |
+| `FILE_MAX_SIZE_BYTES` | `104857600` | 100 MB per file |
+| `FILE_MAX_STORAGE_PER_DB_BYTES` | `5368709120` | 5 GB per database |
+
+**Control plane integration** (only if pairing with the control plane service):
+
+| Variable | Description |
+|---|---|
+| `ENABLE_CONTROL_DB` | Set `true` to auto-provision the `control` database on startup |
+| `CONTROL_DB_SECRET` | Shared secret — must match `CONTROL_DB_SECRET` in the control plane service |
+| `SQLITE_HUB_ADMIN_TOKEN` | Same value as `ADMIN_TOKEN` — used by the control plane to call admin routes |
+
+### 4. Deploy
+
+Push to your branch or trigger a manual deploy. Railway will:
+1. Build the multi-stage Dockerfile (Go binary + Next.js standalone + Caddy)
+2. Start the service with `/app/start.sh`
+3. Health-check `GET /api/health` (120 s timeout to allow cold-start)
+4. Mark the deploy healthy and route traffic
+
+### Generating secrets
+
+```bash
+# Single command to generate all four secrets
+for v in ADMIN_TOKEN SESSION_SECRET FILE_URL_SIGNING_SECRET FILE_TOKEN_SIGNING_SECRET; do
+  echo "$v=$(openssl rand -hex 32)"
+done
+```
+
+Paste the output directly into the Railway service variables UI.
 
 ## API overview
 
