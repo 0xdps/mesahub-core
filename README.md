@@ -144,6 +144,7 @@ All API routes except `/api/health` require admin authentication.
 
 ## Documentation
 
+- [GUIDE.md](./GUIDE.md) - end-to-end setup guide: local dev, Railway deploy, first database, querying, file storage
 - [docs/DEVELOPMENT.md](./docs/DEVELOPMENT.md) - full development and operations guide
 - [docs/FILE_STORAGE.md](./docs/FILE_STORAGE.md) - file upload/download API, limits, and storage model
 - [docs/PRD.md](./docs/PRD.md) - product requirements
