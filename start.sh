@@ -183,43 +183,57 @@ EOF
 else
     # === PRODUCTION MODE ===
     echo "🚀 Starting SQLite Hub in PRODUCTION mode"
-    
+
     # Create data directories
     mkdir -p /data /data/files/blobs
-    
-    # Start Next.js backend (production)
-    echo "Starting Next.js server on port $BACKEND_PORT..."
-    
-    # Check if server.js exists
+
+    # Check required binaries exist
     if [ ! -f /app/nextjs/server.js ]; then
-        echo "❌ Error: server.js not found at /app/nextjs/server.js"
-        echo "Checking alternative locations..."
-        find /app -name "server.js" -type f 2>/dev/null || echo "No server.js found anywhere in /app"
+        echo "❌ Error: Next.js server.js not found at /app/nextjs/server.js"
         exit 1
     fi
-    
-    # Run Next.js on BACKEND_PORT only; do NOT export PORT=BACKEND_PORT to the
-    # shell or Caddy would try to bind the same port as Next.js.
-    # HOSTNAME=0.0.0.0 ensures Next.js binds to all interfaces (not just the
-    # container hostname), so curl http://localhost:$BACKEND_PORT succeeds.
-    PORT=$BACKEND_PORT HOSTNAME=0.0.0.0 node /app/nextjs/server.js &
-    BACKEND_PID=$!
-    
-    # Wait for backend to be ready (quicker for prod)
-    echo "Waiting for backend to be ready on localhost:$BACKEND_PORT..."
-    max_attempts=30
+    if [ ! -f /app/server/sqlite-hub-server ]; then
+        echo "❌ Error: Go binary not found at /app/server/sqlite-hub-server"
+        exit 1
+    fi
+
+    # Start Go server + Next.js via supervisord (background)
+    # Go listens on port 3000; Next.js on port 3001.
+    echo "Starting Go server (port 3000) and Next.js (port 3001) via supervisord..."
+    supervisord -c /etc/supervisor/conf.d/sqlite-hub.conf &
+    SUPERVISOR_PID=$!
+
+    # Wait for Next.js to be ready (it's the backend Caddy proxies to)
+    echo "Waiting for Next.js to be ready on localhost:3001..."
+    max_attempts=60
     attempt=0
-    until curl -sf http://localhost:$BACKEND_PORT/api/health > /dev/null 2>&1; do
+    until curl -sf http://localhost:3001/api/health > /dev/null 2>&1; do
       attempt=$((attempt + 1))
       if [ $attempt -eq $max_attempts ]; then
-        echo "❌ Backend failed to start on port $BACKEND_PORT"
-        kill $BACKEND_PID 2>/dev/null || true
+        echo "❌ Next.js failed to start on port 3001"
+        kill $SUPERVISOR_PID 2>/dev/null || true
         exit 1
       fi
-      sleep 1
+      sleep 2
     done
-    
-    echo "✅ Backend ready on port $BACKEND_PORT"
+    echo "✅ Next.js ready on port 3001"
+
+    # Wait for Go server to be ready
+    echo "Waiting for Go server to be ready on localhost:3000..."
+    attempt=0
+    until curl -sf http://localhost:3000/api/health > /dev/null 2>&1; do
+      attempt=$((attempt + 1))
+      if [ $attempt -eq $max_attempts ]; then
+        echo "❌ Go server failed to start on port 3000"
+        kill $SUPERVISOR_PID 2>/dev/null || true
+        exit 1
+      fi
+      sleep 2
+    done
+    echo "✅ Go server ready on port 3000"
+
+    # BACKEND_PORT for Caddy = Next.js port (3001)
+    BACKEND_PORT=3001
     
     # Generate Caddyfile for reverse proxy (sequential appends — safe in /bin/sh)
     CONTROL_ENABLED_VAL="$(echo "${ENABLE_CONTROL_DB:-false}" | tr '[:upper:]' '[:lower:]')"
