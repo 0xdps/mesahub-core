@@ -61,7 +61,7 @@ if [ "$NODE_ENV" = "development" ]; then
 }
 EOF
 
-    # ── api.* subdomain ───────────────────────────────────────────────────────
+    # ── Subdomain blocks — only added when ENABLE_CONTROL_DB=true ─────────────
     if [ "$CONTROL_ENABLED_VAL" = "true" ]; then
         cat >> /tmp/Caddyfile <<EOF
 
@@ -101,19 +101,6 @@ api.mesahub.app:$PORT {
 		reverse_proxy localhost:$BACKEND_PORT
 	}
 }
-EOF
-    else
-        cat >> /tmp/Caddyfile <<EOF
-
-api.mesahub.app:$PORT {
-	respond "Service not available" 503
-}
-EOF
-    fi
-
-    # ── admin.* subdomain ─────────────────────────────────────────────────────
-    if [ "$CONTROL_ENABLED_VAL" = "true" ]; then
-        cat >> /tmp/Caddyfile <<EOF
 
 admin.mesahub.app:$PORT {
 	handle /api/* {
@@ -123,13 +110,6 @@ admin.mesahub.app:$PORT {
 	handle {
 		reverse_proxy localhost:$BACKEND_PORT
 	}
-}
-EOF
-    else
-        cat >> /tmp/Caddyfile <<EOF
-
-admin.mesahub.app:$PORT {
-	respond "Service not available" 503
 }
 EOF
     fi
@@ -247,7 +227,7 @@ else
 }
 EOF
 
-    # ── api.* subdomain ───────────────────────────────────────────────────────
+    # ── Subdomain blocks — only added when ENABLE_CONTROL_DB=true ─────────────
     if [ "$CONTROL_ENABLED_VAL" = "true" ]; then
         cat >> /tmp/Caddyfile <<EOF
 
@@ -287,19 +267,6 @@ api.mesahub.app:$PORT {
 		reverse_proxy localhost:$BACKEND_PORT
 	}
 }
-EOF
-    else
-        cat >> /tmp/Caddyfile <<EOF
-
-api.mesahub.app:$PORT {
-	respond "Service not available" 503
-}
-EOF
-    fi
-
-    # ── admin.* subdomain ─────────────────────────────────────────────────────
-    if [ "$CONTROL_ENABLED_VAL" = "true" ]; then
-        cat >> /tmp/Caddyfile <<EOF
 
 admin.mesahub.app:$PORT {
 	handle /api/* {
@@ -309,13 +276,6 @@ admin.mesahub.app:$PORT {
 	handle {
 		reverse_proxy localhost:$BACKEND_PORT
 	}
-}
-EOF
-    else
-        cat >> /tmp/Caddyfile <<EOF
-
-admin.mesahub.app:$PORT {
-	respond "Service not available" 503
 }
 EOF
     fi
