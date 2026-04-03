@@ -118,6 +118,11 @@ EOF
     cat >> /tmp/Caddyfile <<EOF
 
 :$PORT {
+	# Caddy-native health check — responds before Next.js is involved
+	handle /health {
+		respond 200
+	}
+
 	@double_slash path_regexp dslash ^//(.*)$
 	rewrite @double_slash /{http.regexp.dslash.1}
 
@@ -284,6 +289,11 @@ EOF
     cat >> /tmp/Caddyfile <<EOF
 
 :$PORT {
+	# Caddy-native health check — responds before Next.js is involved
+	handle /health {
+		respond 200
+	}
+
 	# Silently normalize double leading slashes (e.g. //foo → /foo).
 	# Without this, Caddy issues a redirect which strips CORS headers and
 	# breaks preflight requests from cross-origin clients.
