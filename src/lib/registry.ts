@@ -1,7 +1,7 @@
 import Database from "better-sqlite3";
 import fs from "fs";
 import path from "path";
-import { closeDbConnection } from "./db-pool";
+import { closeDbConnection, getDbConnection } from "./db-pool";
 import { deleteFilesForDatabase } from "./file-storage";
 
 const DATA_PATH = process.env.DATA_PATH ?? "/data";
@@ -79,6 +79,96 @@ export function getRegistry(): Database.Database {
       _registry
         .prepare("UPDATE databases SET service_secret = ? WHERE name = 'control'")
         .run(controlSecret);
+    }
+
+    // Initialise the control database schema directly via better-sqlite3.
+    // Running this here (behind ENABLE_CONTROL_DB) guarantees all tables exist
+    // before the control plane service starts and tries to use them.
+    try {
+      const controlDb = getDbConnection('control');
+      controlDb.exec(`
+        CREATE TABLE IF NOT EXISTS users (
+          id          TEXT PRIMARY KEY,
+          email       TEXT NOT NULL,
+          nube_plan   TEXT NOT NULL DEFAULT 'developer',
+          nube_status TEXT NOT NULL DEFAULT 'active',
+          created_at  TEXT NOT NULL DEFAULT (datetime('now'))
+        );
+
+        CREATE TABLE IF NOT EXISTS instances (
+          id                      TEXT PRIMARY KEY,
+          url                     TEXT NOT NULL,
+          region                  TEXT,
+          admin_token             TEXT NOT NULL,
+          max_databases           INTEGER NOT NULL DEFAULT 100,
+          current_databases_count INTEGER NOT NULL DEFAULT 0,
+          is_available            INTEGER NOT NULL DEFAULT 1,
+          health_check_at         TEXT,
+          created_at              TEXT NOT NULL DEFAULT (datetime('now'))
+        );
+
+        CREATE TABLE IF NOT EXISTS databases (
+          id                     TEXT PRIMARY KEY,
+          user_id                TEXT NOT NULL REFERENCES users(id),
+          name                   TEXT NOT NULL,
+          display_name           TEXT,
+          description            TEXT,
+          sqlite_hub_instance_id TEXT NOT NULL REFERENCES instances(id),
+          service_secret         TEXT NOT NULL,
+          status                 TEXT NOT NULL DEFAULT 'active',
+          size_bytes             INTEGER NOT NULL DEFAULT 0,
+          created_at             TEXT NOT NULL DEFAULT (datetime('now')),
+          updated_at             TEXT
+        );
+
+        CREATE TABLE IF NOT EXISTS api_keys (
+          id           TEXT PRIMARY KEY,
+          user_id      TEXT NOT NULL REFERENCES users(id),
+          key_hash     TEXT NOT NULL,
+          name         TEXT NOT NULL,
+          scope        TEXT NOT NULL DEFAULT 'account',
+          created_at   TEXT NOT NULL DEFAULT (datetime('now')),
+          last_used_at TEXT,
+          status       TEXT NOT NULL DEFAULT 'active'
+        );
+
+        CREATE TABLE IF NOT EXISTS usage (
+          id               TEXT PRIMARY KEY,
+          user_id          TEXT NOT NULL REFERENCES users(id),
+          period_year      INTEGER NOT NULL,
+          period_month     INTEGER NOT NULL,
+          queries_executed INTEGER NOT NULL DEFAULT 0,
+          api_calls        INTEGER NOT NULL DEFAULT 0,
+          storage_bytes    INTEGER NOT NULL DEFAULT 0,
+          calls_success    INTEGER NOT NULL DEFAULT 0,
+          calls_client_err INTEGER NOT NULL DEFAULT 0,
+          calls_server_err INTEGER NOT NULL DEFAULT 0,
+          UNIQUE(user_id, period_year, period_month)
+        );
+
+        CREATE TABLE IF NOT EXISTS api_key_databases (
+          api_key_id  TEXT NOT NULL REFERENCES api_keys(id),
+          database_id TEXT NOT NULL REFERENCES databases(id),
+          PRIMARY KEY (api_key_id, database_id)
+        );
+      `);
+
+      // Seed the default instance row so the control plane can look up
+      // this template service automatically on first run.
+      // SQLITE_HUB_PUBLIC_URL  — the public URL of this template service (e.g. https://api.mesahub.app)
+      // ADMIN_TOKEN            — the admin bearer token for this service
+      const instanceUrl  = process.env.SQLITE_HUB_PUBLIC_URL;
+      const instanceToken = process.env.ADMIN_TOKEN;
+      if (instanceUrl && instanceToken) {
+        controlDb
+          .prepare(`INSERT OR IGNORE INTO instances (id, url, region, admin_token, max_databases)
+                    VALUES ('default', ?, 'default', ?, 100)`)
+          .run(instanceUrl, instanceToken);
+      }
+
+      console.log('[registry] control database schema initialised');
+    } catch (err) {
+      console.error('[registry] failed to initialise control database schema:', err);
     }
   }
 
