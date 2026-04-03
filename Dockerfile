@@ -28,7 +28,47 @@ COPY . .
 RUN pnpm build
 
 # ─────────────────────────────────────────────────────────────────────────────
+# Development stage — hot-reload for both Go (air) and Next.js
+# Must come before the production stage so that `docker build` (and Railway)
+# targets `production` by default (last stage wins).
+# ─────────────────────────────────────────────────────────────────────────────
+FROM caddy:2-alpine AS development
+
+RUN apk add --no-cache \
+    nodejs \
+    npm \
+    go \
+    gcc \
+    musl-dev \
+    supervisor \
+    curl \
+    libgcc \
+    libc6-compat \
+    python3 \
+    make \
+    g++
+
+# Install air for Go hot-reload
+RUN go install github.com/air-verse/air@latest
+
+WORKDIR /app
+RUN mkdir -p /data/files/blobs
+
+COPY package.json pnpm-lock.yaml ./
+RUN corepack enable pnpm && pnpm install
+
+COPY . .
+COPY start.sh /app/start.sh
+RUN chmod +x /app/start.sh
+
+EXPOSE 80
+EXPOSE 443
+
+CMD ["/app/start.sh"]
+
+# ─────────────────────────────────────────────────────────────────────────────
 # Stage 3: Production image — Caddy + supervisord + Go binary + Next.js standalone
+# This is the last stage — Docker and Railway build this target by default.
 # ─────────────────────────────────────────────────────────────────────────────
 FROM caddy:2-alpine AS production
 
@@ -62,43 +102,6 @@ COPY --from=nextjs-builder /app/.next/static            ./nextjs/.next/static
 COPY supervisord.conf /etc/supervisor/conf.d/sqlite-hub.conf
 
 # ── Caddy startup script (generates Caddyfile dynamically) ──────────────────
-COPY start.sh /app/start.sh
-RUN chmod +x /app/start.sh
-
-EXPOSE 80
-EXPOSE 443
-
-CMD ["/app/start.sh"]
-
-# ─────────────────────────────────────────────────────────────────────────────
-# Development stage — hot-reload for both Go (air) and Next.js
-# ─────────────────────────────────────────────────────────────────────────────
-FROM caddy:2-alpine AS development
-
-RUN apk add --no-cache \
-    nodejs \
-    npm \
-    go \
-    gcc \
-    musl-dev \
-    supervisor \
-    curl \
-    libgcc \
-    libc6-compat \
-    python3 \
-    make \
-    g++
-
-# Install air for Go hot-reload
-RUN go install github.com/air-verse/air@latest
-
-WORKDIR /app
-RUN mkdir -p /data/files/blobs
-
-COPY package.json pnpm-lock.yaml ./
-RUN corepack enable pnpm && pnpm install
-
-COPY . .
 COPY start.sh /app/start.sh
 RUN chmod +x /app/start.sh
 
