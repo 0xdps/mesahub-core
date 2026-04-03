@@ -117,9 +117,11 @@ export async function middleware(req: NextRequest) {
 
   // All other routes: require a valid browser session (session cookie only)
 
-  // Browser: check session cookie
-  const res = continueResponse();
-  const session = await getIronSession<SessionData>(req, res, sessionOptions);
+  // Check the session before building the response so we can stamp the admin
+  // header when the user is authenticated. (continueResponse() captures the
+  // forwarded headers snapshot, so the stamp must happen first.)
+  const tempRes = NextResponse.next();
+  const session = await getIronSession<SessionData>(req, tempRes, sessionOptions);
 
   if (!session.isLoggedIn) {
     if (rewrittenPathname.startsWith("/api/")) {
@@ -129,6 +131,13 @@ export async function middleware(req: NextRequest) {
     return NextResponse.redirect(loginUrl);
   }
 
+  // Authenticated browser session — stamp the header so API route handlers
+  // know this is a verified admin request.
+  forwarded.set(ADMIN_SESSION_HEADER, "1");
+  const res = continueResponse();
+  // Preserve any Set-Cookie iron-session wrote (session refresh / re-seal).
+  const sessionCookie = tempRes.headers.get("set-cookie");
+  if (sessionCookie) res.headers.set("set-cookie", sessionCookie);
   return applyCorsHeaders(req, res);
 }
 
