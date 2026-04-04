@@ -8,6 +8,7 @@ import (
 	"os"
 	"path/filepath"
 	"sync"
+	"time"
 
 	_ "github.com/mattn/go-sqlite3" // CGO SQLite driver
 	"github.com/rs/zerolog/log"
@@ -109,6 +110,7 @@ func open(path string) (*sql.DB, error) {
 	// Single writer; readers use WAL snapshots.
 	db.SetMaxOpenConns(1)
 	db.SetMaxIdleConns(1)
+	db.SetConnMaxIdleTime(10 * time.Minute)
 
 	if _, err := db.Exec(pragmas); err != nil {
 		_ = db.Close()

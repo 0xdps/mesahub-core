@@ -14,6 +14,7 @@ import (
 	"github.com/rs/zerolog/log"
 
 	"github.com/0xdps/sqlite-hub/server/internal/auth"
+	"github.com/0xdps/sqlite-hub/server/internal/cache"
 	"github.com/0xdps/sqlite-hub/server/internal/config"
 	"github.com/0xdps/sqlite-hub/server/internal/db"
 	"github.com/0xdps/sqlite-hub/server/internal/files"
@@ -25,11 +26,12 @@ type FilesHandler struct {
 	cfg      *config.Config
 	registry *db.Registry
 	storage  *files.Storage
+	cache    cache.Client
 }
 
 // NewFilesHandler creates a FilesHandler.
-func NewFilesHandler(cfg *config.Config, registry *db.Registry, storage *files.Storage) *FilesHandler {
-	return &FilesHandler{cfg: cfg, registry: registry, storage: storage}
+func NewFilesHandler(cfg *config.Config, registry *db.Registry, storage *files.Storage, c cache.Client) *FilesHandler {
+	return &FilesHandler{cfg: cfg, registry: registry, storage: storage, cache: c}
 }
 
 // List handles GET /api/db/:name/files.
@@ -43,7 +45,7 @@ func (h *FilesHandler) List(w http.ResponseWriter, r *http.Request) {
 
 	// Auth: valid file access token OR normal DB auth.
 	if !filetoken.ValidateFromRequest(r, name) {
-		if code, msg := auth.AuthorizeDB(r, h.cfg, rec); code != 0 {
+		if code, msg := auth.AuthorizeDB(r, h.cfg, h.cache, rec); code != 0 {
 			ErrorJSON(w, code, msg)
 			return
 		}
@@ -76,7 +78,7 @@ func (h *FilesHandler) Upload(w http.ResponseWriter, r *http.Request) {
 		ErrorJSON(w, http.StatusNotFound, "Database not found")
 		return
 	}
-	if code, msg := auth.AuthorizeDB(r, h.cfg, rec); code != 0 {
+	if code, msg := auth.AuthorizeDB(r, h.cfg, h.cache, rec); code != 0 {
 		ErrorJSON(w, code, msg)
 		return
 	}
@@ -192,7 +194,7 @@ func (h *FilesHandler) serveFile(w http.ResponseWriter, r *http.Request, headOnl
 
 	// Auth: file token OR DB auth.
 	if !filetoken.ValidateFromRequest(r, name) {
-		if code, msg := auth.AuthorizeDB(r, h.cfg, rec); code != 0 {
+		if code, msg := auth.AuthorizeDB(r, h.cfg, h.cache, rec); code != 0 {
 			ErrorJSON(w, code, msg)
 			return
 		}
@@ -248,7 +250,7 @@ func (h *FilesHandler) DeleteFile(w http.ResponseWriter, r *http.Request) {
 		ErrorJSON(w, http.StatusNotFound, "Database not found")
 		return
 	}
-	if code, msg := auth.AuthorizeDB(r, h.cfg, rec); code != 0 {
+	if code, msg := auth.AuthorizeDB(r, h.cfg, h.cache, rec); code != 0 {
 		ErrorJSON(w, code, msg)
 		return
 	}

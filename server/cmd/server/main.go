@@ -52,18 +52,21 @@ func main() {
 		Int("port", cfg.Port).
 		Msg("sqlite-hub server starting")
 
-	// ── Cache (Redis optional) ────────────────────────────────────────────────
-	var cacheClient cache.Client
-	if cfg.RedisURL != "" {
-		rc, err := cache.NewRedis(cfg.RedisURL)
-		if err != nil {
-			log.Fatal().Err(err).Msg("redis connect failed")
+	// ── Cache ─────────────────────────────────────────────────────────────────
+	cacheClient, err := cache.New(cfg.CacheMode, cfg.RedisURL)
+	if err != nil {
+		log.Fatal().Err(err).Msg("cache init failed")
+	}
+	{
+		mode := cfg.CacheMode
+		if mode == "" {
+			if cfg.RedisURL != "" {
+				mode = cache.ModeRedis
+			} else {
+				mode = cache.ModeNone
+			}
 		}
-		cacheClient = rc
-		log.Info().Msg("redis connected")
-	} else {
-		cacheClient = cache.NewNoop()
-		log.Info().Msg("redis not configured — using JWT sessions (standalone mode)")
+		log.Info().Str("mode", mode).Bool("available", cacheClient.Available()).Msg("cache ready")
 	}
 
 	// ── DB pool ───────────────────────────────────────────────────────────────
@@ -98,17 +101,19 @@ func main() {
 	r.Use(middleware.Logger)
 	r.Use(chimw.Recoverer)
 	r.Use(auth.CORS(cfg))
+	r.Use(auth.ControlPlaneStamper(cfg))
 	r.Use(auth.AdminStamper(cfg, cacheClient))
 
 	// ── Handlers ──────────────────────────────────────────────────────────────
 	dbH := handler.NewDBHandler(cfg, pool, registry)
-	queryH := handler.NewQueryHandler(cfg, pool, registry)
-	execH := handler.NewExecHandler(cfg, pool, wq, registry)
-	filesH := handler.NewFilesHandler(cfg, registry, fileStorage)
-	tokensH := handler.NewTokensHandler(cfg, registry)
+	queryH := handler.NewQueryHandler(cfg, pool, registry, cacheClient)
+	execH := handler.NewExecHandler(cfg, pool, wq, registry, cacheClient)
+	filesH := handler.NewFilesHandler(cfg, registry, fileStorage, cacheClient)
+	tokensH := handler.NewTokensHandler(cfg, registry, cacheClient)
 	metricsH := handler.NewMetricsHandler(cfg, registry, fileStorage)
 	maintenanceH := handler.NewMaintenanceHandler(cfg, registry, fileStorage)
 	authH := auth.NewHandler(cfg, cacheClient)
+	internalH := handler.NewInternalHandler(cacheClient)
 
 	// Health + version — no auth required
 	r.Get("/api/health", handler.Health)
@@ -120,6 +125,12 @@ func main() {
 	r.Group(func(r chi.Router) {
 		r.Use(auth.RequireAdmin)
 		r.Get("/api/auth/me", authH.Me)
+	})
+
+	// ── Internal control-plane callbacks (control → template only) ───────────
+	r.Group(func(r chi.Router) {
+		r.Use(auth.RequireControlPlane)
+		r.Delete("/api/internal/cache/apikey/{hash}", internalH.InvalidateAPIKey)
 	})
 
 	// ── Admin-only DB management ───────────────────────────────────────────────

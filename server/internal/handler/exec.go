@@ -11,6 +11,7 @@ import (
 	"github.com/rs/zerolog/log"
 
 	"github.com/0xdps/sqlite-hub/server/internal/auth"
+	"github.com/0xdps/sqlite-hub/server/internal/cache"
 	"github.com/0xdps/sqlite-hub/server/internal/config"
 	"github.com/0xdps/sqlite-hub/server/internal/db"
 	"github.com/0xdps/sqlite-hub/server/internal/queue"
@@ -39,11 +40,12 @@ type ExecHandler struct {
 	pool     *db.Pool
 	queue    *queue.Queue
 	registry *db.Registry
+	cache    cache.Client
 }
 
 // NewExecHandler creates an ExecHandler.
-func NewExecHandler(cfg *config.Config, pool *db.Pool, wq *queue.Queue, registry *db.Registry) *ExecHandler {
-	return &ExecHandler{cfg: cfg, pool: pool, queue: wq, registry: registry}
+func NewExecHandler(cfg *config.Config, pool *db.Pool, wq *queue.Queue, registry *db.Registry, c cache.Client) *ExecHandler {
+	return &ExecHandler{cfg: cfg, pool: pool, queue: wq, registry: registry, cache: c}
 }
 
 // Exec handles POST /api/db/:name/exec.
@@ -55,7 +57,7 @@ func (h *ExecHandler) Exec(w http.ResponseWriter, r *http.Request) {
 		ErrorJSON(w, http.StatusNotFound, "Database not found")
 		return
 	}
-	if code, msg := auth.AuthorizeDB(r, h.cfg, rec); code != 0 {
+	if code, msg := auth.AuthorizeDB(r, h.cfg, h.cache, rec); code != 0 {
 		ErrorJSON(w, code, msg)
 		return
 	}

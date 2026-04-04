@@ -33,6 +33,7 @@ func StripInternalHeaders(next http.Handler) http.Handler {
 		r.Header.Del("X-Sqlite-Hub-Admin")
 		r.Header.Del("X-Sqlite-Hub-User-Id")
 		r.Header.Del("X-Internal-Request")
+		r.Header.Del("X-Sqlite-Hub-Control")
 		next.ServeHTTP(w, r)
 	})
 }

@@ -9,6 +9,7 @@ import (
 	"github.com/rs/zerolog/log"
 
 	"github.com/0xdps/sqlite-hub/server/internal/auth"
+	"github.com/0xdps/sqlite-hub/server/internal/cache"
 	"github.com/0xdps/sqlite-hub/server/internal/config"
 	"github.com/0xdps/sqlite-hub/server/internal/db"
 	"github.com/0xdps/sqlite-hub/server/internal/filetoken"
@@ -18,11 +19,12 @@ import (
 type TokensHandler struct {
 	cfg      *config.Config
 	registry *db.Registry
+	cache    cache.Client
 }
 
 // NewTokensHandler creates a TokensHandler.
-func NewTokensHandler(cfg *config.Config, registry *db.Registry) *TokensHandler {
-	return &TokensHandler{cfg: cfg, registry: registry}
+func NewTokensHandler(cfg *config.Config, registry *db.Registry, c cache.Client) *TokensHandler {
+	return &TokensHandler{cfg: cfg, registry: registry, cache: c}
 }
 
 // CreateToken handles POST /api/db/:name/tokens/files.
@@ -33,7 +35,7 @@ func (h *TokensHandler) CreateToken(w http.ResponseWriter, r *http.Request) {
 		ErrorJSON(w, http.StatusNotFound, "Database not found")
 		return
 	}
-	if code, msg := auth.AuthorizeDB(r, h.cfg, rec); code != 0 {
+	if code, msg := auth.AuthorizeDB(r, h.cfg, h.cache, rec); code != 0 {
 		ErrorJSON(w, code, msg)
 		return
 	}
@@ -75,7 +77,7 @@ func (h *TokensHandler) RevokeToken(w http.ResponseWriter, r *http.Request) {
 		ErrorJSON(w, http.StatusNotFound, "Database not found")
 		return
 	}
-	if code, msg := auth.AuthorizeDB(r, h.cfg, rec); code != 0 {
+	if code, msg := auth.AuthorizeDB(r, h.cfg, h.cache, rec); code != 0 {
 		ErrorJSON(w, code, msg)
 		return
 	}

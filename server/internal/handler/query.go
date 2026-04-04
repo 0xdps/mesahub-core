@@ -9,6 +9,7 @@ import (
 	"github.com/go-chi/chi/v5"
 
 	"github.com/0xdps/sqlite-hub/server/internal/auth"
+	"github.com/0xdps/sqlite-hub/server/internal/cache"
 	"github.com/0xdps/sqlite-hub/server/internal/config"
 	"github.com/0xdps/sqlite-hub/server/internal/db"
 )
@@ -22,11 +23,12 @@ type QueryHandler struct {
 	cfg      *config.Config
 	pool     *db.Pool
 	registry *db.Registry
+	cache    cache.Client
 }
 
 // NewQueryHandler creates a QueryHandler.
-func NewQueryHandler(cfg *config.Config, pool *db.Pool, registry *db.Registry) *QueryHandler {
-	return &QueryHandler{cfg: cfg, pool: pool, registry: registry}
+func NewQueryHandler(cfg *config.Config, pool *db.Pool, registry *db.Registry, c cache.Client) *QueryHandler {
+	return &QueryHandler{cfg: cfg, pool: pool, registry: registry, cache: c}
 }
 
 // Query handles POST /api/db/:name/query.
@@ -38,7 +40,7 @@ func (h *QueryHandler) Query(w http.ResponseWriter, r *http.Request) {
 		ErrorJSON(w, http.StatusNotFound, "Database not found")
 		return
 	}
-	if code, msg := auth.AuthorizeDB(r, h.cfg, rec); code != 0 {
+	if code, msg := auth.AuthorizeDB(r, h.cfg, h.cache, rec); code != 0 {
 		ErrorJSON(w, code, msg)
 		return
 	}

@@ -21,11 +21,13 @@ type Config struct {
 	Mode     Mode
 
 	// Auth
-	AdminToken    string
-	SessionSecret string
+	AdminToken         string
+	SessionSecret      string
+	ControlPlaneSecret string // secret for control→template internal callbacks; required in control mode
 
 	// Redis — detected by presence; nil behaviour handled by cache.NoopClient
-	RedisURL string
+	RedisURL  string
+	CacheMode string // none | redis | in-memory | both (derived from REDIS_URL if empty)
 
 	// Control-mode extras (only validated when Mode == ModeControl)
 	NubeGatewayURL  string
@@ -52,7 +54,9 @@ func Load() (*Config, error) {
 		Mode:                    Mode(strEnv("SQLITE_HUB_MODE", "standalone")),
 		AdminToken:              os.Getenv("ADMIN_TOKEN"),
 		SessionSecret:           os.Getenv("SESSION_SECRET"),
+		ControlPlaneSecret:      os.Getenv("CONTROL_PLANE_SECRET"),
 		RedisURL:                os.Getenv("REDIS_URL"),
+		CacheMode:               os.Getenv("CACHE_MODE"),
 		NubeGatewayURL:          os.Getenv("NUBE_GATEWAY_URL"),
 		NubeAppID:               os.Getenv("NUBE_APP_ID"),
 		NubeAppSecret:           os.Getenv("NUBE_APP_SECRET"),
@@ -77,8 +81,28 @@ func Load() (*Config, error) {
 	if cfg.Mode != ModeStandalone && cfg.Mode != ModeControl {
 		return nil, fmt.Errorf("SQLITE_HUB_MODE must be 'standalone' or 'control', got %q", cfg.Mode)
 	}
+	if cfg.Mode == ModeControl && cfg.ControlPlaneSecret == "" {
+		return nil, fmt.Errorf("CONTROL_PLANE_SECRET is required when SQLITE_HUB_MODE=control")
+	}
 	if cfg.Mode == ModeControl && cfg.RedisURL == "" {
 		return nil, fmt.Errorf("REDIS_URL is required when SQLITE_HUB_MODE=control (PKCE state needs Redis)")
+	}
+
+	// Validate CACHE_MODE. An empty value is resolved at runtime by cache.New()
+	// (defaults to "redis" when REDIS_URL is set, "none" otherwise).
+	switch cfg.CacheMode {
+	case "", "none", "in-memory":
+		// no Redis needed
+	case "redis", "both":
+		if cfg.RedisURL == "" {
+			return nil, fmt.Errorf("REDIS_URL is required when CACHE_MODE=%s", cfg.CacheMode)
+		}
+	default:
+		return nil, fmt.Errorf("CACHE_MODE must be one of: none, redis, in-memory, both — got %q", cfg.CacheMode)
+	}
+	// Control mode needs Redis for cross-instance PKCE state.
+	if cfg.Mode == ModeControl && cfg.CacheMode != "redis" && cfg.CacheMode != "both" && cfg.CacheMode != "" {
+		return nil, fmt.Errorf("CACHE_MODE must be 'redis' or 'both' when SQLITE_HUB_MODE=control (PKCE state requires Redis)")
 	}
 
 	return cfg, nil

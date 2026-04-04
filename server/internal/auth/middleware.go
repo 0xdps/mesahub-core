@@ -11,6 +11,38 @@ import (
 	"github.com/0xdps/sqlite-hub/server/internal/config"
 )
 
+// ControlPlaneStamper is a middleware that stamps X-Sqlite-Hub-Control: 1 when
+// the request carries the correct CONTROL_PLANE_SECRET as a Bearer token.
+// This header is stripped from all incoming requests by StripInternalHeaders
+// before this middleware runs, so it cannot be forged externally.
+// When CONTROL_PLANE_SECRET is empty (standalone mode) this middleware is a no-op.
+func ControlPlaneStamper(cfg *config.Config) func(http.Handler) http.Handler {
+	return func(next http.Handler) http.Handler {
+		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			if cfg.ControlPlaneSecret != "" {
+				if raw := r.Header.Get("Authorization"); strings.HasPrefix(raw, "Bearer ") {
+					if TimingSafeMatch(strings.TrimPrefix(raw, "Bearer "), cfg.ControlPlaneSecret) {
+						r.Header.Set(ControlPlaneHeader, "1")
+					}
+				}
+			}
+			next.ServeHTTP(w, r)
+		})
+	}
+}
+
+// RequireControlPlane rejects requests that do not carry the control-plane
+// header stamped by ControlPlaneStamper.
+func RequireControlPlane(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Header.Get(ControlPlaneHeader) != "1" {
+			writeJSON(w, http.StatusUnauthorized, map[string]string{"error": "Unauthorized"})
+			return
+		}
+		next.ServeHTTP(w, r)
+	})
+}
+
 // AdminStamper is a global middleware that stamps X-Sqlite-Hub-Admin: 1 on
 // the request when the caller presents valid credentials:
 //
