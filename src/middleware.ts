@@ -10,7 +10,7 @@ const CORS_ALLOWED_ORIGINS = (process.env.CORS_ALLOWED_ORIGINS ?? "")
   .filter(Boolean);
 
 // These routes enforce their own per-DB auth (service secret / internal IP)
-const DB_SCOPED_PATTERN = /^\/api\/db\/[^/]+(?:\/.*)?$/;
+const DB_SCOPED_PATTERN = /^\/api\/(?:db\/[^/]+|query\/[^/]+|exec\/[^/]+|files\/[^/]+)(?:\/.*)?$/;
 
 // Public file shortlink pattern: /{dbName}/file/{fileId}
 const FILE_SHORTLINK_PATTERN = /^\/[^/]+\/file\/[^/]+$/;

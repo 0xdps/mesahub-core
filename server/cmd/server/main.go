@@ -160,6 +160,17 @@ func main() {
 	r.Post("/api/db/{name}/tokens/files", tokensH.CreateToken)
 	r.Post("/api/db/{name}/tokens/files/revoke", tokensH.RevokeToken)
 
+	// ── UUID-based data endpoints (control mode only) ─────────────────────────
+	if cfg.Mode == config.ModeControl {
+		r.Post("/api/query/{uuid}", queryH.QueryByUUID)
+		r.Post("/api/exec/{uuid}", execH.ExecByUUID)
+		r.Get("/api/files/{uuid}", filesH.ListByUUID)
+		r.Post("/api/files/{uuid}", filesH.UploadByUUID)
+		r.Head("/api/files/{uuid}/{id}", filesH.HeadFileByUUID)
+		r.Get("/api/files/{uuid}/{id}", filesH.DownloadByUUID)
+		r.Delete("/api/files/{uuid}/{id}", filesH.DeleteFileByUUID)
+	}
+
 	// ── Server ────────────────────────────────────────────────────────────────
 	srv := &http.Server{
 		Addr:         fmt.Sprintf(":%d", cfg.Port),

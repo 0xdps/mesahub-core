@@ -36,6 +36,37 @@ function timingSafeMatch(a: string, b: string): boolean {
  * access must use a per-DB service_secret or a user-scoped shs_ API key.
  */
 
+/** Derives the template-internal DB name from userId + dbName. Must match getTemplateName() in the control plane. */
+export function toTemplateName(userId: string, dbName: string): string {
+  return `u${userId.slice(0, 8)}-${dbName}`.replace(/[^a-z0-9_-]/g, "-");
+}
+
+interface ControlDbRecord { user_id: string; name: string }
+
+/**
+ * Resolves a control-plane database UUID to the template-internal DB name and owner userId.
+ * Returns null if not found or not active.
+ */
+export function lookupDatabaseByUuid(uuid: string): { templateName: string; userId: string } | null {
+  try {
+    const DATA_PATH = process.env.DATA_PATH ?? "/data";
+    const controlDbPath = path.join(DATA_PATH, "control.db");
+    if (!fs.existsSync(controlDbPath)) return null;
+    const db = new BetterSqlite3(controlDbPath, { readonly: true });
+    try {
+      const row = db
+        .prepare("SELECT user_id, name FROM databases WHERE id = ? AND status = 'active'")
+        .get(uuid) as ControlDbRecord | undefined;
+      if (!row) return null;
+      return { templateName: toTemplateName(row.user_id, row.name), userId: row.user_id };
+    } finally {
+      db.close();
+    }
+  } catch {
+    return null;
+  }
+}
+
 /**
  * Validates an `shs_` API key against the control database.
  * Returns the owning user_id if valid, null otherwise.

@@ -196,3 +196,57 @@ func (h *ExecHandler) execWrite(w http.ResponseWriter, r *http.Request, name, sq
 		})
 	}
 }
+
+// ExecByUUID handles POST /api/exec/:uuid (control mode only).
+// It resolves the UUID to a template-internal database name via control.db
+// and then runs the same exec logic as Exec.
+func (h *ExecHandler) ExecByUUID(w http.ResponseWriter, r *http.Request) {
+	uuid := chi.URLParam(r, "uuid")
+
+	templateName, _, err := auth.LookupByUUID(h.cfg.DataPath, uuid)
+	if err != nil {
+		ErrorJSON(w, http.StatusNotFound, "Database not found")
+		return
+	}
+
+	rec, err := h.registry.GetDatabase(templateName)
+	if err != nil || rec == nil {
+		ErrorJSON(w, http.StatusNotFound, "Database not found")
+		return
+	}
+	if code, msg := auth.AuthorizeDBByUUID(r, h.cfg, h.cache, rec, uuid); code != 0 {
+		ErrorJSON(w, code, msg)
+		return
+	}
+
+	var body struct {
+		SQL      string `json:"sql"`
+		Bindings []any  `json:"bindings"`
+	}
+	if !decodeJSON(w, r, &body) {
+		return
+	}
+
+	if body.SQL == "" {
+		ErrorJSON(w, http.StatusBadRequest, "sql is required")
+		return
+	}
+	if h.cfg.MaxSQLLength > 0 && len(body.SQL) > h.cfg.MaxSQLLength {
+		ErrorJSON(w, http.StatusBadRequest, "sql exceeds maximum allowed length")
+		return
+	}
+	maxBindings := h.cfg.MaxSQLBindings
+	if maxBindings <= 0 {
+		maxBindings = 5000
+	}
+	if len(body.Bindings) > maxBindings {
+		ErrorJSON(w, http.StatusBadRequest, "too many SQL bindings")
+		return
+	}
+
+	if classifySQL(body.SQL) == "read" {
+		h.execRead(w, r, templateName, body.SQL, body.Bindings)
+	} else {
+		h.execWrite(w, r, templateName, body.SQL, body.Bindings)
+	}
+}
