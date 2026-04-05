@@ -17,11 +17,13 @@ import (
 	"github.com/0xdps/sqlite-hub/server/internal/auth"
 	"github.com/0xdps/sqlite-hub/server/internal/cache"
 	"github.com/0xdps/sqlite-hub/server/internal/config"
+	"github.com/0xdps/sqlite-hub/server/internal/control"
 	"github.com/0xdps/sqlite-hub/server/internal/db"
 	"github.com/0xdps/sqlite-hub/server/internal/files"
 	"github.com/0xdps/sqlite-hub/server/internal/handler"
 	"github.com/0xdps/sqlite-hub/server/internal/middleware"
 	"github.com/0xdps/sqlite-hub/server/internal/queue"
+	"github.com/0xdps/sqlite-hub/server/internal/telemetry"
 )
 
 const version = "2.0.0-dev"
@@ -90,7 +92,8 @@ func main() {
 	// ── Write queue ───────────────────────────────────────────────────────────
 	wq := queue.New(cfg.MaxWriteQueueDepth)
 	defer wq.Stop()
-
+	// ── Telemetry counters ────────────────────────────────────────────────────────
+	tel := telemetry.New()
 	// ── Router ────────────────────────────────────────────────────────────────
 	r := chi.NewRouter()
 
@@ -106,12 +109,13 @@ func main() {
 
 	// ── Handlers ──────────────────────────────────────────────────────────────
 	dbH := handler.NewDBHandler(cfg, pool, registry)
-	queryH := handler.NewQueryHandler(cfg, pool, registry, cacheClient)
-	execH := handler.NewExecHandler(cfg, pool, wq, registry, cacheClient)
+	queryH := handler.NewQueryHandler(cfg, pool, registry, cacheClient, tel)
+	execH := handler.NewExecHandler(cfg, pool, wq, registry, cacheClient, tel)
 	filesH := handler.NewFilesHandler(cfg, registry, fileStorage, cacheClient)
 	tokensH := handler.NewTokensHandler(cfg, registry, cacheClient)
-	metricsH := handler.NewMetricsHandler(cfg, registry, fileStorage)
+	metricsH := handler.NewMetricsHandler(cfg, registry, fileStorage, wq, tel)
 	maintenanceH := handler.NewMaintenanceHandler(cfg, registry, fileStorage)
+	systemH := handler.NewSystemHandler(cfg)
 	authH := auth.NewHandler(cfg, cacheClient)
 	internalH := handler.NewInternalHandler(cacheClient)
 
@@ -147,6 +151,9 @@ func main() {
 		r.Delete("/api/db/{name}", dbH.DeleteDB)
 		r.Get("/api/metrics", metricsH.Metrics)
 		r.Post("/api/maintenance/cleanup", maintenanceH.Cleanup)
+		// System / internal databases — read-only browse access.
+		r.Get("/api/system/dbs", systemH.ListSystemDBs)
+		r.Post("/api/system/db/{name}/query", systemH.QuerySystemDB)
 	})
 
 	// ── Per-DB data endpoints (auth handled inside each handler) ──────────────
@@ -154,13 +161,37 @@ func main() {
 	r.Post("/api/db/{name}/exec", execH.Exec)
 	r.Get("/api/db/{name}/files", filesH.List)
 	r.Post("/api/db/{name}/files", filesH.Upload)
+	// NOTE: presign/batch and bulk-delete must be registered before {id} routes
+	// so chi does not treat "presign" or "bulk-delete" as a file ID.
+	r.Post("/api/db/{name}/files/presign/batch", filesH.PresignBatch)
+	r.Post("/api/db/{name}/files/bulk-delete", filesH.BulkDeleteFiles)
 	r.Head("/api/db/{name}/files/{id}", filesH.HeadFile)
 	r.Get("/api/db/{name}/files/{id}", filesH.Download)
 	r.Delete("/api/db/{name}/files/{id}", filesH.DeleteFile)
+	r.Get("/api/db/{name}/files/{id}/meta", filesH.Meta)
+	r.Post("/api/db/{name}/files/{id}/presign", filesH.PresignFile)
 	r.Post("/api/db/{name}/tokens/files", tokensH.CreateToken)
 	r.Post("/api/db/{name}/tokens/files/revoke", tokensH.RevokeToken)
 
-	// ── UUID-based data endpoints (control mode only) ─────────────────────────
+	// Public file shortlink — no admin session required, only a valid file token.
+	// Registered outside the admin group; auth is enforced inside the handler.
+	r.Get("/{dbName}/file/{id}", filesH.FileShortlink)
+
+	// Legacy /api/v1/* prefix strip — forward to the same router without the prefix.
+	// This provides backwards compatibility for older clients that used /api/v1/.
+	r.Mount("/api/v1", http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
+		p := req.URL.Path
+		if len(p) >= 7 {
+			p = "/api" + p[7:] // strip "/api/v1"
+		}
+		req.URL.Path = p
+		if req.URL.RawPath != "" {
+			req.URL.RawPath = "/api" + req.URL.RawPath[7:]
+		}
+		r.ServeHTTP(w, req)
+	}))
+
+	// ── Control-mode routes (UUID-based API keys + control plane management) ──
 	if cfg.Mode == config.ModeControl {
 		r.Post("/api/query/{uuid}", queryH.QueryByUUID)
 		r.Post("/api/exec/{uuid}", execH.ExecByUUID)
@@ -169,6 +200,15 @@ func main() {
 		r.Head("/api/files/{uuid}/{id}", filesH.HeadFileByUUID)
 		r.Get("/api/files/{uuid}/{id}", filesH.DownloadByUUID)
 		r.Delete("/api/files/{uuid}/{id}", filesH.DeleteFileByUUID)
+
+		// ── Control plane management routes ─────────────────────────────────
+		cdb, err := control.Open(cfg.DataPath)
+		if err != nil {
+			log.Fatal().Err(err).Msg("control DB open failed")
+		}
+		defer cdb.Close()
+		controlH := control.NewHandler(cfg, cdb, cacheClient, registry, pool)
+		control.RegisterRoutes(r, controlH, cdb, cacheClient)
 	}
 
 	// ── Server ────────────────────────────────────────────────────────────────

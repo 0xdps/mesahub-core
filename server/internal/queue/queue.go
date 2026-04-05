@@ -84,3 +84,14 @@ func (q *Queue) Stop() {
 		log.Debug().Str("db", name).Msg("write queue worker closed")
 	}
 }
+
+// Depth returns the total number of pending jobs across all per-db channels.
+func (q *Queue) Depth() int {
+	q.mu.Lock()
+	defer q.mu.Unlock()
+	var n int
+	for _, ch := range q.workers {
+		n += len(ch)
+	}
+	return n
+}

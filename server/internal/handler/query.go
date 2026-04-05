@@ -12,11 +12,13 @@ import (
 	"github.com/0xdps/sqlite-hub/server/internal/cache"
 	"github.com/0xdps/sqlite-hub/server/internal/config"
 	"github.com/0xdps/sqlite-hub/server/internal/db"
+	"github.com/0xdps/sqlite-hub/server/internal/telemetry"
 )
 
 // blockedQueryPattern matches SQL statements not permitted on the /query endpoint.
+// VACUUM, REPLACE and UPSERT are included: they mutate data and must go through /exec.
 var blockedQueryPattern = regexp.MustCompile(
-	`(?i)^\s*(INSERT|UPDATE|DELETE|DROP|ALTER|CREATE|ATTACH|DETACH|PRAGMA\s+\w+\s*=)`)
+	`(?i)^\s*(INSERT|UPDATE|DELETE|DROP|ALTER|CREATE|ATTACH|DETACH|VACUUM|REPLACE|UPSERT|PRAGMA\s+\w+\s*=)`)
 
 // QueryHandler holds dependencies for read-only query execution.
 type QueryHandler struct {
@@ -24,11 +26,12 @@ type QueryHandler struct {
 	pool     *db.Pool
 	registry *db.Registry
 	cache    cache.Client
+	tel      *telemetry.Counters
 }
 
 // NewQueryHandler creates a QueryHandler.
-func NewQueryHandler(cfg *config.Config, pool *db.Pool, registry *db.Registry, c cache.Client) *QueryHandler {
-	return &QueryHandler{cfg: cfg, pool: pool, registry: registry, cache: c}
+func NewQueryHandler(cfg *config.Config, pool *db.Pool, registry *db.Registry, c cache.Client, tel *telemetry.Counters) *QueryHandler {
+	return &QueryHandler{cfg: cfg, pool: pool, registry: registry, cache: c, tel: tel}
 }
 
 // Query handles POST /api/db/:name/query.
@@ -78,6 +81,7 @@ func (h *QueryHandler) Query(w http.ResponseWriter, r *http.Request) {
 
 	sqlDB, err := h.pool.Get(name)
 	if err != nil {
+		h.tel.IncError()
 		ErrorJSON(w, http.StatusInternalServerError, "failed to open database: "+err.Error())
 		return
 	}
@@ -85,6 +89,7 @@ func (h *QueryHandler) Query(w http.ResponseWriter, r *http.Request) {
 	start := time.Now()
 	rows, err := sqlDB.QueryContext(r.Context(), body.SQL, anySliceToDriverValues(body.Bindings)...)
 	if err != nil {
+		h.tel.IncError()
 		ErrorJSON(w, http.StatusBadRequest, err.Error())
 		return
 	}
@@ -92,10 +97,12 @@ func (h *QueryHandler) Query(w http.ResponseWriter, r *http.Request) {
 
 	headers, rowData, rowsRead, err := scanRows(rows)
 	if err != nil {
+		h.tel.IncError()
 		ErrorJSON(w, http.StatusInternalServerError, err.Error())
 		return
 	}
 	elapsed := time.Since(start).Milliseconds()
+	h.tel.IncRead(elapsed)
 
 	writeJSON(w, http.StatusOK, map[string]any{
 		"headers": headers,
@@ -115,7 +122,7 @@ func (h *QueryHandler) Query(w http.ResponseWriter, r *http.Request) {
 func (h *QueryHandler) QueryByUUID(w http.ResponseWriter, r *http.Request) {
 	uuid := chi.URLParam(r, "uuid")
 
-	templateName, _, err := auth.LookupByUUID(h.cfg.DataPath, uuid)
+	templateName, ownerID, err := auth.LookupByUUID(h.cfg.DataPath, uuid)
 	if err != nil {
 		ErrorJSON(w, http.StatusNotFound, "Database not found")
 		return
@@ -123,6 +130,13 @@ func (h *QueryHandler) QueryByUUID(w http.ResponseWriter, r *http.Request) {
 
 	rec, err := h.registry.GetDatabase(templateName)
 	if err != nil || rec == nil {
+		// DB exists in control.db but not yet registered (created before auto-register).
+		// Register it on the fly so subsequent requests also succeed.
+		if _, regErr := h.registry.InsertDatabase(templateName, ownerID, nil, nil); regErr == nil {
+			rec, _ = h.registry.GetDatabase(templateName)
+		}
+	}
+	if rec == nil {
 		ErrorJSON(w, http.StatusNotFound, "Database not found")
 		return
 	}

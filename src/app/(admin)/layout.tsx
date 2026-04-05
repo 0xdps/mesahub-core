@@ -1,5 +1,5 @@
-import { logout } from "@/lib/actions";
 import Link from "next/link";
+import SignOutButton from "./sign-out-button";
 
 export default function AdminLayout({ children }: { children: React.ReactNode }) {
   return (
@@ -9,14 +9,7 @@ export default function AdminLayout({ children }: { children: React.ReactNode })
           <img src="/logo.svg" alt="sqlite-hub" className="w-6 h-6 rounded" />
           <span className="text-sm font-semibold tracking-tight text-white">sqlite-hub</span>
         </Link>
-        <form action={logout}>
-          <button
-            type="submit"
-            className="text-xs text-neutral-400 hover:text-white transition-colors"
-          >
-            Sign out
-          </button>
-        </form>
+        <SignOutButton />
       </header>
       <main className="flex-1 flex flex-col overflow-hidden">{children}</main>
     </div>

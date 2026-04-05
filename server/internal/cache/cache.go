@@ -61,6 +61,7 @@ type APIKeyValue struct {
 type PKCEValue struct {
 	Verifier    string `json:"verifier"`
 	RedirectURI string `json:"redirect_uri"`
+	ReturnTo    string `json:"return_to,omitempty"`
 }
 
 // Client is the interface every cache backend implements.

@@ -14,17 +14,18 @@ services:
     environment:
       - NODE_ENV=development
       - PORT=80
-      - BACKEND_PORT=${BACKEND_PORT:-3000}
       # Admin panel password (min 8 chars)
       - ADMIN_TOKEN=${ADMIN_TOKEN}
-      # Session cookie signing secret (min 32 chars)
-      - SESSION_SECRET=${SESSION_SECRET}
       # Data directory
       - DATA_PATH=/data
       # Storage limits
       - MAX_VOLUME_USAGE_PERCENT=${MAX_VOLUME_USAGE_PERCENT:-85}
-      # File storage configuration
-      - ENABLE_FILE_STORAGE=${ENABLE_FILE_STORAGE:-true}
+      # File storage configuration (set both — Go uses the un-prefixed form;
+      # Next.js client components use the NEXT_PUBLIC_ form)
+      - ENABLE_FILE_STORAGE=${ENABLE_FILE_STORAGE:-false}
+      - NEXT_PUBLIC_ENABLE_FILE_STORAGE=${ENABLE_FILE_STORAGE:-false}
+      # Required for presigned file URL signing (separate from ADMIN_TOKEN)
+      - FILE_TOKEN_SIGNING_SECRET=${FILE_TOKEN_SIGNING_SECRET}
       - ENABLE_FILE_PROXY_DELIVERY=${ENABLE_FILE_PROXY_DELIVERY:-true}
       - FILE_MAX_SIZE_BYTES=${FILE_MAX_SIZE_BYTES:-104857600}
       - FILE_MAX_FILES_PER_DB=${FILE_MAX_FILES_PER_DB:-10000}
@@ -72,17 +73,18 @@ services:
     environment:
       - NODE_ENV=production
       - PORT=80
-      - BACKEND_PORT=${BACKEND_PORT:-3000}
       # Admin panel password (min 8 chars)
       - ADMIN_TOKEN=${ADMIN_TOKEN}
-      # Session cookie signing secret (min 32 chars)
-      - SESSION_SECRET=${SESSION_SECRET}
       # Data directory
       - DATA_PATH=/data
       # Storage limits
       - MAX_VOLUME_USAGE_PERCENT=${MAX_VOLUME_USAGE_PERCENT:-85}
-      # File storage configuration
-      - ENABLE_FILE_STORAGE=${ENABLE_FILE_STORAGE:-true}
+      # File storage configuration (set both — Go uses the un-prefixed form;
+      # Next.js client components use the NEXT_PUBLIC_ form)
+      - ENABLE_FILE_STORAGE=${ENABLE_FILE_STORAGE:-false}
+      - NEXT_PUBLIC_ENABLE_FILE_STORAGE=${ENABLE_FILE_STORAGE:-false}
+      # Required for presigned file URL signing (separate from ADMIN_TOKEN)
+      - FILE_TOKEN_SIGNING_SECRET=${FILE_TOKEN_SIGNING_SECRET}
       - ENABLE_FILE_PROXY_DELIVERY=${ENABLE_FILE_PROXY_DELIVERY:-true}
       - FILE_MAX_SIZE_BYTES=${FILE_MAX_SIZE_BYTES:-104857600}
       - FILE_MAX_FILES_PER_DB=${FILE_MAX_FILES_PER_DB:-10000}

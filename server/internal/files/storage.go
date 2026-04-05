@@ -297,8 +297,10 @@ func (s *Storage) GetByID(id string) (*StoredFile, error) {
 }
 
 // List returns a paginated list of files for a database.
-func (s *Storage) List(dbName string, limit, offset int, folderPrefix string) (ListFilesResult, error) {
-	return s.meta.List(dbName, limit, offset, folderPrefix)
+// sort: uploaded_at | filename | size_bytes | content_type (default: uploaded_at)
+// order: asc | desc (default: desc)
+func (s *Storage) List(dbName string, limit, offset int, folderPrefix, sort, order string) (ListFilesResult, error) {
+	return s.meta.List(dbName, limit, offset, folderPrefix, sort, order)
 }
 
 // StorageMetrics returns aggregate usage stats.

@@ -1,5 +1,4 @@
 import { useTheme } from "next-themes";
-import Image from "next/image";
 import { useMemo } from "react";
 
 export default function EmptyTermDefinition() {
@@ -34,11 +33,10 @@ export default function EmptyTermDefinition() {
           <div key={index}>
             <div className="bg-accent relative mt-10 mb-10 h-[280px] flex-1 items-center justify-center rounded-md border pb-0 dark:bg-neutral-900">
               <div className="relative h-full w-full overflow-hidden rounded-md">
-                <Image
+                <img
                   src={item.src}
                   alt={item.title}
-                  layout="fill"
-                  objectFit="contain"
+                  className="h-full w-full object-contain"
                 />
               </div>
             </div>

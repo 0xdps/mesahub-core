@@ -180,11 +180,30 @@ func (m *MetadataDB) GetByID(id string) (*StoredFile, error) {
 	return f, err
 }
 
-// List returns paginated files for a database with optional folder prefix filter.
-func (m *MetadataDB) List(dbName string, limit, offset int, folderPrefix string) (ListFilesResult, error) {
+// validSortColumns is the whitelist of columns that may be used for ordering.
+var validSortColumns = map[string]string{
+	"uploaded_at":  "uploaded_at",
+	"filename":     "filename",
+	"size_bytes":   "size_bytes",
+	"content_type": "content_type",
+}
+
+// List returns paginated files for a database with optional folder prefix and
+// sort / order params. sort must be one of the validSortColumns keys; order
+// must be "asc" or "desc". Defaults: uploaded_at DESC.
+func (m *MetadataDB) List(dbName string, limit, offset int, folderPrefix, sort, order string) (ListFilesResult, error) {
 	var res ListFilesResult
 	res.Limit = limit
 	res.Offset = offset
+
+	// Validate and resolve sort column against whitelist (prevents SQL injection).
+	sortCol, ok := validSortColumns[sort]
+	if !ok {
+		sortCol = "uploaded_at"
+	}
+	if order != "asc" && order != "desc" {
+		order = "desc"
+	}
 
 	countArgs := []any{dbName}
 	countSQL := "SELECT COUNT(*) FROM files WHERE db_name = ?"
@@ -204,7 +223,8 @@ func (m *MetadataDB) List(dbName string, limit, offset int, folderPrefix string)
 		return res, err
 	}
 
-	listSQL += " ORDER BY uploaded_at DESC LIMIT ? OFFSET ?"
+	// #nosec G201 — sortCol and order are validated against whitelists above.
+	listSQL += fmt.Sprintf(" ORDER BY %s %s LIMIT ? OFFSET ?", sortCol, order)
 	listArgs = append(listArgs, limit, offset)
 
 	rows, err := m.db.Query(listSQL, listArgs...)

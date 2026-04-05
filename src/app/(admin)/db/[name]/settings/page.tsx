@@ -1,8 +1,9 @@
 "use client";
 
 import Link from "next/link";
-import { use, useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
+import { useParams } from "react-router-dom";
 
 interface DbInfo {
   name: string;
@@ -13,12 +14,8 @@ interface DbInfo {
   created_at: string;
 }
 
-export default function DbSettingsPage({
-  params,
-}: {
-  params: Promise<{ name: string }>;
-}) {
-  const { name } = use(params);
+export default function DbSettingsPage() {
+  const { name = '' } = useParams<{ name: string }>();
   const router = useRouter();
 
   const [db, setDb] = useState<DbInfo | null>(null);

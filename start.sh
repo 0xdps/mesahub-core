@@ -1,358 +1,224 @@
 #!/bin/sh
 set -e
 
-# PORT      = external port Caddy listens on (set by Railway, default 80)
-# BACKEND_PORT = internal port Next.js listens on (must differ from PORT)
+# PORT       — external port Caddy listens on (set by Railway, default 80)
+# Go internal port is fixed and must not be changed.
 PORT=${PORT:-80}
-BACKEND_PORT=${BACKEND_PORT:-3000}
+GO_PORT=3000
+STATIC_PORT=3001  # Vite dev server (development only)
 
-# Guard: if Railway injected PORT and BACKEND_PORT was not explicitly set to
-# something different, the two would collide and Caddy would fail to bind.
-# In that case, pick a safe internal port automatically.
-if [ "$BACKEND_PORT" = "$PORT" ]; then
-  BACKEND_PORT=3000
-  if [ "$PORT" = "3000" ]; then
-    BACKEND_PORT=3001
-  fi
-  echo "⚠️  BACKEND_PORT collision detected with PORT=$PORT — using BACKEND_PORT=$BACKEND_PORT"
-fi
+# Optional: set both to enable split-domain routing in control mode.
+# Example: API_HOSTNAME=api.yourdomain.com  ADMIN_HOSTNAME=admin.yourdomain.com
+API_HOSTNAME="${API_HOSTNAME:-}"
+ADMIN_HOSTNAME="${ADMIN_HOSTNAME:-}"
 
-echo "📌 PORT=$PORT (Caddy external)  BACKEND_PORT=$BACKEND_PORT (Next.js internal)"
+echo "PORT=$PORT (Caddy)  Go=:$GO_PORT"
 
-# Determine behavior based on NODE_ENV
+# ---------------------------------------------------------------------------
+# Shared helper — writes an X-Sendfile handle_response block to stdout.
+# Go sets the X-Sendfile header; Caddy intercepts it and serves the blob
+# directly from /data/files/blobs, so Go never streams the binary itself.
+# ---------------------------------------------------------------------------
+sendfile_response() {
+    cat <<'SFBLOCK'
+            @sendfile header X-Sendfile *
+            handle_response @sendfile {
+                header {
+                    Content-Type        {http.reverse_proxy.header.Content-Type}
+                    Content-Disposition {http.reverse_proxy.header.Content-Disposition}
+                    ETag                {http.reverse_proxy.header.ETag}
+                    X-Content-Hash      {http.reverse_proxy.header.X-Content-Hash}
+                    -X-Sendfile
+                }
+                root * /data/files/blobs
+                rewrite * {http.reverse_proxy.header.X-Sendfile}
+                file_server
+            }
+SFBLOCK
+}
+
+# ---------------------------------------------------------------------------
 if [ "$NODE_ENV" = "development" ]; then
-    # === DEVELOPMENT MODE ===
-    echo "🚀 Starting SQLite Hub in DEVELOPMENT mode (with hot reload)"
-    
-    # Create data directories
+# ---------------------------------------------------------------------------
+    echo "Starting SQLite Hub in DEVELOPMENT mode"
     mkdir -p /data /data/files/blobs
-    
-    # Run the plain Next.js dev server in-container; host Portless handles routing.
-    echo "Starting Next.js dev server on port $BACKEND_PORT..."
-    PORT=$BACKEND_PORT npx next dev -p $BACKEND_PORT -H 0.0.0.0 &
-    # Restore PORT so the Caddyfile heredoc below uses the external port
-    PORT=${PORT}
-    BACKEND_PID=$!
-    
-    # Wait for dev server to be ready (longer timeout for dev)
-    echo "Waiting for dev server to be ready on localhost:$BACKEND_PORT..."
+
+    # Start Vite dev server (Go must be started separately — see docker-compose.dev.yml)
+    echo "Starting Vite dev server on :$STATIC_PORT ..."
+    PORT=$STATIC_PORT pnpm vite --port $STATIC_PORT --host 0.0.0.0 &
+    VITE_PID=$!
+
+    echo "Waiting for Vite dev server ..."
     max_attempts=60
     attempt=0
-    until curl -sf http://localhost:$BACKEND_PORT/api/health > /dev/null 2>&1; do
-      attempt=$((attempt + 1))
-      if [ $attempt -eq $max_attempts ]; then
-        echo "❌ Dev server failed to start on port $BACKEND_PORT"
-        kill $BACKEND_PID 2>/dev/null || true
-        exit 1
-      fi
-      sleep 2
+    until curl -sf http://localhost:$STATIC_PORT > /dev/null 2>&1; do
+        attempt=$((attempt + 1))
+        if [ $attempt -eq $max_attempts ]; then
+            echo "Vite dev server failed to start on port $STATIC_PORT"
+            kill $VITE_PID 2>/dev/null || true
+            exit 1
+        fi
+        sleep 2
     done
-    
-    echo "✅ Dev server ready with hot reload enabled"
-    
-    # Generate Caddyfile for reverse proxy (sequential appends — safe in /bin/sh)
-    CONTROL_ENABLED_VAL="$(echo "${ENABLE_CONTROL_DB:-false}" | tr '[:upper:]' '[:lower:]')"
+    echo "Vite dev server ready"
 
-    # ── Global options + open single :$PORT site block ────────────────────────
     cat > /tmp/Caddyfile <<EOF
 {
-	auto_https off
-	admin off
+    auto_https off
+    admin off
 }
 
-:$PORT {
-	handle /health {
-		respond 200
-	}
+:${PORT} {
+    @dslash path_regexp dslash ^//(.*)$
+    rewrite @dslash /{http.regexp.dslash.1}
 
-	@double_slash path_regexp dslash ^//(.*)$
-	rewrite @double_slash /{http.regexp.dslash.1}
-EOF
+    # File downloads (Go sets X-Sendfile, Caddy serves blob)
+    handle /api/db/*/files/* {
+        reverse_proxy localhost:${GO_PORT} {
+$(sendfile_response)
+        }
+    }
 
-    # ── Subdomain host matchers — only added when ENABLE_CONTROL_DB=true ──────
-    if [ "$CONTROL_ENABLED_VAL" = "true" ]; then
-        cat >> /tmp/Caddyfile <<EOF
+    # Public file shortlinks (Go handles these once Phase 2 route is added)
+    handle /*/file/* {
+        reverse_proxy localhost:${GO_PORT} {
+$(sendfile_response)
+        }
+    }
 
-	@api_host host api.mesahub.app
-	handle @api_host {
-		@no_api_prefix {
-			not path /api/*
-			not path /_next/*
-		}
-		rewrite @no_api_prefix /api{uri}
+    # All API traffic -> Go
+    handle /api/* {
+        reverse_proxy localhost:${GO_PORT}
+    }
 
-		handle /api/db/*/files/* {
-			reverse_proxy localhost:$BACKEND_PORT {
-				@sendfile header X-Sendfile *
-				handle_response @sendfile {
-					header {
-						Content-Type {http.reverse_proxy.header.Content-Type}
-						Content-Disposition {http.reverse_proxy.header.Content-Disposition}
-						ETag {http.reverse_proxy.header.ETag}
-						X-Content-Hash {http.reverse_proxy.header.X-Content-Hash}
-						Vary {http.reverse_proxy.header.Vary}
-						Access-Control-Allow-Origin {http.reverse_proxy.header.Access-Control-Allow-Origin}
-						Access-Control-Allow-Methods {http.reverse_proxy.header.Access-Control-Allow-Methods}
-						Access-Control-Allow-Headers {http.reverse_proxy.header.Access-Control-Allow-Headers}
-						-X-Sendfile
-					}
-					root * /data/files/blobs
-					rewrite * {http.reverse_proxy.header.X-Sendfile}
-					file_server
-				}
-			}
-		}
-
-		handle {
-			reverse_proxy localhost:$BACKEND_PORT
-		}
-	}
-
-	@admin_host host admin.mesahub.app
-	handle @admin_host {
-		reverse_proxy localhost:$BACKEND_PORT
-	}
-EOF
-    fi
-
-    # ── Fallback: Railway URL, direct IP, all other hosts ─────────────────────
-    cat >> /tmp/Caddyfile <<EOF
-
-	handle /api/db/*/files/* {
-		reverse_proxy localhost:$BACKEND_PORT {
-			@sendfile header X-Sendfile *
-			handle_response @sendfile {
-				header {
-					Content-Type {http.reverse_proxy.header.Content-Type}
-					Content-Disposition {http.reverse_proxy.header.Content-Disposition}
-					ETag {http.reverse_proxy.header.ETag}
-					X-Content-Hash {http.reverse_proxy.header.X-Content-Hash}
-					Vary {http.reverse_proxy.header.Vary}
-					Access-Control-Allow-Origin {http.reverse_proxy.header.Access-Control-Allow-Origin}
-					Access-Control-Allow-Methods {http.reverse_proxy.header.Access-Control-Allow-Methods}
-					Access-Control-Allow-Headers {http.reverse_proxy.header.Access-Control-Allow-Headers}
-					-X-Sendfile
-				}
-				root * /data/files/blobs
-				rewrite * {http.reverse_proxy.header.X-Sendfile}
-				file_server
-			}
-		}
-	}
-
-	handle /*/file/* {
-		reverse_proxy localhost:$BACKEND_PORT {
-			@sendfile header X-Sendfile *
-			handle_response @sendfile {
-				header {
-					Content-Type {http.reverse_proxy.header.Content-Type}
-					Content-Disposition {http.reverse_proxy.header.Content-Disposition}
-					ETag {http.reverse_proxy.header.ETag}
-					X-Content-Hash {http.reverse_proxy.header.X-Content-Hash}
-					Vary {http.reverse_proxy.header.Vary}
-					Access-Control-Allow-Origin {http.reverse_proxy.header.Access-Control-Allow-Origin}
-					Access-Control-Allow-Methods {http.reverse_proxy.header.Access-Control-Allow-Methods}
-					Access-Control-Allow-Headers {http.reverse_proxy.header.Access-Control-Allow-Headers}
-					-X-Sendfile
-				}
-				root * /data/files/blobs
-				rewrite * {http.reverse_proxy.header.X-Sendfile}
-				file_server
-			}
-		}
-	}
-
-	handle {
-		reverse_proxy localhost:$BACKEND_PORT
-	}
+    # Everything else -> Vite dev server
+    handle {
+        reverse_proxy localhost:${STATIC_PORT}
+    }
 }
 EOF
 
-    echo "Starting Caddy reverse proxy on port $PORT..."
     caddy fmt --overwrite /tmp/Caddyfile
     caddy run --config /tmp/Caddyfile
 
+# ---------------------------------------------------------------------------
 else
-    # === PRODUCTION MODE ===
-    echo "🚀 Starting SQLite Hub in PRODUCTION mode"
-
-    # Create data directories
+# ---------------------------------------------------------------------------
+    echo "Starting SQLite Hub in PRODUCTION mode"
     mkdir -p /data /data/files/blobs
 
-    # Check required binaries exist
-    if [ ! -f /app/nextjs/server.js ]; then
-        echo "❌ Error: Next.js server.js not found at /app/nextjs/server.js"
+    if [ ! -f /app/dist/index.html ]; then
+        echo "Static build not found at /app/dist/index.html"
         exit 1
     fi
     if [ ! -f /app/server/sqlite-hub-server ]; then
-        echo "❌ Error: Go binary not found at /app/server/sqlite-hub-server"
+        echo "Go binary not found at /app/server/sqlite-hub-server"
         exit 1
     fi
 
-    # Start Go server + Next.js via supervisord (background)
-    # Go listens on port 3000; Next.js on port 3001.
-    echo "Starting Go server (port 3000) and Next.js (port 3001) via supervisord..."
+    echo "Starting Go server via supervisord ..."
     supervisord -c /etc/supervisor/conf.d/sqlite-hub.conf &
     SUPERVISOR_PID=$!
 
-    # Wait for Next.js to be ready (it's the backend Caddy proxies to)
-    echo "Waiting for Next.js to be ready on localhost:3001..."
+    # Wait for Go first — it boots faster.
+    echo "Waiting for Go server on :$GO_PORT ..."
     max_attempts=60
     attempt=0
-    until curl -sf http://localhost:3001/api/health > /dev/null 2>&1; do
-      attempt=$((attempt + 1))
-      if [ $attempt -eq $max_attempts ]; then
-        echo "❌ Next.js failed to start on port 3001"
-        kill $SUPERVISOR_PID 2>/dev/null || true
-        exit 1
-      fi
-      sleep 2
+    until curl -sf http://localhost:$GO_PORT/api/health > /dev/null 2>&1; do
+        attempt=$((attempt + 1))
+        if [ $attempt -eq $max_attempts ]; then
+            echo "Go server failed to start on port $GO_PORT"
+            kill $SUPERVISOR_PID 2>/dev/null || true
+            exit 1
+        fi
+        sleep 2
     done
-    echo "✅ Next.js ready on port 3001"
+    echo "Go server ready"
 
-    # Wait for Go server to be ready
-    echo "Waiting for Go server to be ready on localhost:3000..."
-    attempt=0
-    until curl -sf http://localhost:3000/api/health > /dev/null 2>&1; do
-      attempt=$((attempt + 1))
-      if [ $attempt -eq $max_attempts ]; then
-        echo "❌ Go server failed to start on port 3000"
-        kill $SUPERVISOR_PID 2>/dev/null || true
-        exit 1
-      fi
-      sleep 2
-    done
-    echo "✅ Go server ready on port 3000"
-
-    # BACKEND_PORT for Caddy = Next.js port (3001)
-    BACKEND_PORT=3001
-    
-    # Generate Caddyfile for reverse proxy (sequential appends — safe in /bin/sh)
     CONTROL_ENABLED_VAL="$(echo "${ENABLE_CONTROL_DB:-false}" | tr '[:upper:]' '[:lower:]')"
 
-    # ── Global options + open single :$PORT site block ────────────────────────
+    # ── Caddyfile header ──────────────────────────────────────────────────────
     cat > /tmp/Caddyfile <<EOF
 {
-	auto_https off
-	admin off
+    auto_https off
+    admin off
 }
 
-:$PORT {
-	handle /health {
-		respond 200
-	}
-
-	@double_slash path_regexp dslash ^//(.*)$
-	rewrite @double_slash /{http.regexp.dslash.1}
+:${PORT} {
+    @dslash path_regexp dslash ^//(.*)$
+    rewrite @dslash /{http.regexp.dslash.1}
 EOF
 
-    # ── Subdomain host matchers — only added when ENABLE_CONTROL_DB=true ──────
-    if [ "$CONTROL_ENABLED_VAL" = "true" ]; then
+    # ── Named-host routing (only when split domains are configured) ───────────
+    if [ "$CONTROL_ENABLED_VAL" = "true" ] && [ -n "$API_HOSTNAME" ] && [ -n "$ADMIN_HOSTNAME" ]; then
         cat >> /tmp/Caddyfile <<EOF
 
-	@api_host host api.mesahub.app
-	handle @api_host {
-		@no_api_prefix {
-			not path /api/*
-			not path /_next/*
-		}
-		rewrite @no_api_prefix /api{uri}
+    # --- ${API_HOSTNAME} -> Go API server ---
+    @api_host host ${API_HOSTNAME}
+    handle @api_host {
+        handle /api/db/*/files/* {
+            reverse_proxy localhost:${GO_PORT} {
+$(sendfile_response)
+            }
+        }
+        handle /*/file/* {
+            reverse_proxy localhost:${GO_PORT} {
+$(sendfile_response)
+            }
+        }
+        # All traffic on the API hostname goes to Go
+        handle {
+            reverse_proxy localhost:${GO_PORT}
+        }
+    }
 
-		handle /api/db/*/files/* {
-			reverse_proxy localhost:$BACKEND_PORT {
-				@sendfile header X-Sendfile *
-				handle_response @sendfile {
-					header {
-						Content-Type {http.reverse_proxy.header.Content-Type}
-						Content-Disposition {http.reverse_proxy.header.Content-Disposition}
-						ETag {http.reverse_proxy.header.ETag}
-						X-Content-Hash {http.reverse_proxy.header.X-Content-Hash}
-						Vary {http.reverse_proxy.header.Vary}
-						Access-Control-Allow-Origin {http.reverse_proxy.header.Access-Control-Allow-Origin}
-						Access-Control-Allow-Methods {http.reverse_proxy.header.Access-Control-Allow-Methods}
-						Access-Control-Allow-Headers {http.reverse_proxy.header.Access-Control-Allow-Headers}
-						-X-Sendfile
-					}
-					root * /data/files/blobs
-					rewrite * {http.reverse_proxy.header.X-Sendfile}
-					file_server
-				}
-			}
-		}
-
-		handle {
-			reverse_proxy localhost:$BACKEND_PORT
-		}
-	}
-
-	@admin_host host admin.mesahub.app
-	handle @admin_host {
-		reverse_proxy localhost:$BACKEND_PORT
-	}
+    # --- ${ADMIN_HOSTNAME} -> static admin UI ---
+    @admin_host host ${ADMIN_HOSTNAME}
+    handle @admin_host {
+        root * /app/dist
+        try_files {path} /index.html
+        file_server
+    }
 EOF
     fi
 
-    # ── Fallback: Railway URL, direct IP, all other hosts ─────────────────────
+    # ── Path-based fallback routing (standalone + Railway preview URLs) ───────
     cat >> /tmp/Caddyfile <<EOF
 
-	handle /api/db/*/files/* {
-		reverse_proxy localhost:$BACKEND_PORT {
-			@sendfile header X-Sendfile *
-			handle_response @sendfile {
-				header {
-					Content-Type {http.reverse_proxy.header.Content-Type}
-					Content-Disposition {http.reverse_proxy.header.Content-Disposition}
-					ETag {http.reverse_proxy.header.ETag}
-					X-Content-Hash {http.reverse_proxy.header.X-Content-Hash}
-					Vary {http.reverse_proxy.header.Vary}
-					Access-Control-Allow-Origin {http.reverse_proxy.header.Access-Control-Allow-Origin}
-					Access-Control-Allow-Methods {http.reverse_proxy.header.Access-Control-Allow-Methods}
-					Access-Control-Allow-Headers {http.reverse_proxy.header.Access-Control-Allow-Headers}
-					-X-Sendfile
-				}
-				root * /data/files/blobs
-				rewrite * {http.reverse_proxy.header.X-Sendfile}
-				file_server
-			}
-		}
-	}
+    # File downloads (X-Sendfile)
+    handle /api/db/*/files/* {
+        reverse_proxy localhost:${GO_PORT} {
+$(sendfile_response)
+        }
+    }
 
-	handle /*/file/* {
-		reverse_proxy localhost:$BACKEND_PORT {
-			@sendfile header X-Sendfile *
-			handle_response @sendfile {
-				header {
-					Content-Type {http.reverse_proxy.header.Content-Type}
-					Content-Disposition {http.reverse_proxy.header.Content-Disposition}
-					ETag {http.reverse_proxy.header.ETag}
-					X-Content-Hash {http.reverse_proxy.header.X-Content-Hash}
-					Vary {http.reverse_proxy.header.Vary}
-					Access-Control-Allow-Origin {http.reverse_proxy.header.Access-Control-Allow-Origin}
-					Access-Control-Allow-Methods {http.reverse_proxy.header.Access-Control-Allow-Methods}
-					Access-Control-Allow-Headers {http.reverse_proxy.header.Access-Control-Allow-Headers}
-					-X-Sendfile
-				}
-				root * /data/files/blobs
-				rewrite * {http.reverse_proxy.header.X-Sendfile}
-				file_server
-			}
-		}
-	}
+    # Public file shortlinks
+    handle /*/file/* {
+        reverse_proxy localhost:${GO_PORT} {
+$(sendfile_response)
+        }
+    }
 
-	handle {
-		reverse_proxy localhost:$BACKEND_PORT
-	}
+    # All API traffic -> Go
+    handle /api/* {
+        reverse_proxy localhost:${GO_PORT}
+    }
+
+    # Everything else -> static admin UI (SPA)
+    handle {
+        root * /app/dist
+        try_files {path} /index.html
+        file_server
+    }
 }
 EOF
 
-    echo "Formatting Caddyfile..."
+    echo "Formatting Caddyfile ..."
     caddy fmt --overwrite /tmp/Caddyfile
 
-    echo "Validating Caddyfile..."
-    caddy validate --config /tmp/Caddyfile || { echo "❌ Caddyfile validation failed"; exit 1; }
+    echo "Validating Caddyfile ..."
+    caddy validate --config /tmp/Caddyfile || { echo "Caddyfile validation failed"; exit 1; }
 
-    echo "Starting Caddy on port $PORT..."
-    # Start Caddy in foreground with the generated config
+    echo "Starting Caddy on port $PORT ..."
     exec caddy run --config /tmp/Caddyfile
 fi
-

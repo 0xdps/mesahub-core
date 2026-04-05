@@ -169,7 +169,16 @@ export default function TableDataWindow({
 
   const onNewRow = useCallback(() => {
     if (data) {
+      const prevFocus = data.getFocus();
       data.insertNewRow();
+      const newRowIndex = prevFocus ? prevFocus.y : 0;
+      const firstEditable = data
+        .getHeaders()
+        .findIndex((h) => !h.setting.readonly);
+      const col = firstEditable >= 0 ? firstEditable : 0;
+      data.setFocus(newRowIndex, col);
+      data.scrollToCell("left", "bottom", { y: newRowIndex, x: col });
+      data.enterEditMode();
     }
   }, [data]);
 

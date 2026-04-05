@@ -8,7 +8,9 @@ import (
 	"github.com/0xdps/sqlite-hub/server/internal/config"
 	"github.com/0xdps/sqlite-hub/server/internal/db"
 	"github.com/0xdps/sqlite-hub/server/internal/files"
+	"github.com/0xdps/sqlite-hub/server/internal/queue"
 	"github.com/0xdps/sqlite-hub/server/internal/sysutil"
+	"github.com/0xdps/sqlite-hub/server/internal/telemetry"
 )
 
 // MetricsHandler holds deps for the metrics route.
@@ -16,11 +18,13 @@ type MetricsHandler struct {
 	cfg      *config.Config
 	registry *db.Registry
 	storage  *files.Storage
+	queue    *queue.Queue
+	tel      *telemetry.Counters
 }
 
 // NewMetricsHandler creates a MetricsHandler.
-func NewMetricsHandler(cfg *config.Config, registry *db.Registry, storage *files.Storage) *MetricsHandler {
-	return &MetricsHandler{cfg: cfg, registry: registry, storage: storage}
+func NewMetricsHandler(cfg *config.Config, registry *db.Registry, storage *files.Storage, wq *queue.Queue, tel *telemetry.Counters) *MetricsHandler {
+	return &MetricsHandler{cfg: cfg, registry: registry, storage: storage, queue: wq, tel: tel}
 }
 
 // Metrics handles GET /api/metrics (admin only).
@@ -49,6 +53,8 @@ func (h *MetricsHandler) Metrics(w http.ResponseWriter, r *http.Request) {
 
 	fileStats, _ := h.storage.StorageMetrics()
 	audit, _ := h.registry.GetAuditMetrics()
+	snap := h.tel.Snapshot()
+	queueDepth := h.queue.Depth()
 
 	resp := map[string]any{
 		"total_dbs":           len(dbs),
@@ -66,6 +72,18 @@ func (h *MetricsHandler) Metrics(w http.ResponseWriter, r *http.Request) {
 			"total_events":     audit.TotalEvents,
 			"events_last_24h":  audit.EventsLast24h,
 			"by_type_last_24h": audit.ByTypeLast24h,
+		},
+		"exec": map[string]any{
+			"reads":       snap.Reads,
+			"writes":      snap.Writes,
+			"errors":      snap.Errors,
+			"queue_depth": queueDepth,
+			"avg_exec_ms": snap.AvgExecMs,
+		},
+		"slo": map[string]any{
+			"availability_pct": snap.AvailabilityPct,
+			"error_rate_pct":   snap.ErrorRatePct,
+			"avg_exec_ms":      snap.AvgExecMs,
 		},
 	}
 	writeJSON(w, http.StatusOK, resp)

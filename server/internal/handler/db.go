@@ -187,7 +187,11 @@ func (h *DBHandler) PatchDB(w http.ResponseWriter, r *http.Request) {
 		if err := h.pool.Remove(name); err != nil {
 			log.Warn().Err(err).Str("name", name).Msg("[db] pool remove error on reset")
 		}
-		log.Info().Str("name", name).Msg("[db] database reset")
+		// Wipe the database file and WAL/SHM sidecars so the DB is truly empty.
+		_ = os.Remove(dbPath)
+		_ = os.Remove(dbPath + "-wal")
+		_ = os.Remove(dbPath + "-shm")
+		log.Info().Str("name", name).Msg("[db] database reset — file deleted")
 		writeJSON(w, http.StatusOK, map[string]bool{"success": true})
 
 	default:

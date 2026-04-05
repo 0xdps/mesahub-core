@@ -52,7 +52,9 @@ func LookupByUUID(dataPath, uuid string) (templateName, userID string, err error
 		uuid).Scan(&uid, &name); err != nil {
 		return "", "", fmt.Errorf("database not found")
 	}
-	return ToTemplateName(uid, name), uid, nil
+	// name is already the template-internal name (e.g. u{prefix8}_{slug})
+	// set at CreateDatabase time – no further derivation needed.
+	return name, uid, nil
 }
 
 // AuthorizeDBByUUID is identical to AuthorizeDB but designed for UUID-based
@@ -60,10 +62,24 @@ func LookupByUUID(dataPath, uuid string) (templateName, userID string, err error
 // did == uuid (the URL parameter) rather than did == record.Name (the template
 // name). This is correct because api_key_databases.database_id stores the
 // control-plane UUID, not the template-internal name.
+//
+// It also accepts a valid control-plane user session (sqlitedbhub_session cookie)
+// when the logged-in user owns this database (verified via control.db).
 func AuthorizeDBByUUID(r *http.Request, cfg *config.Config, c cache.Client, record *db.DBRecord, uuid string) (int, string) {
 	if r.Header.Get(AdminSessionHeader) == "1" {
 		return 0, ""
 	}
+
+	// Accept the control-plane user session when the user owns this database.
+	if cookie, err := r.Cookie("sqlitedbhub_session"); err == nil && cookie.Value != "" {
+		if sv, err := c.GetSession(r.Context(), cookie.Value); err == nil && sv != nil &&
+			sv.Role == "user" && sv.UserID != "" {
+			if IsOwnedByControlUser(cfg.DataPath, uuid, sv.UserID) {
+				return 0, ""
+			}
+		}
+	}
+
 	if record.Status != "active" {
 		return http.StatusServiceUnavailable, "This database is inactive"
 	}
@@ -101,4 +117,24 @@ func AuthorizeDBByUUID(r *http.Request, cfg *config.Config, c cache.Client, reco
 
 	return http.StatusForbidden,
 		"Forbidden: this database has no service_secret — set a service_secret for API access"
+}
+
+// IsOwnedByControlUser reports whether the database with the given UUID is
+// owned by the control-plane user with the given userID. Opens control.db
+// read-only; returns false on any error.
+func IsOwnedByControlUser(dataPath, uuid, userID string) bool {
+	controlPath := filepath.Join(dataPath, "control.db")
+	if _, statErr := os.Stat(controlPath); os.IsNotExist(statErr) {
+		return false
+	}
+	cdb, err := sql.Open("sqlite3", controlPath+"?mode=ro")
+	if err != nil {
+		return false
+	}
+	defer cdb.Close()
+	var n int
+	err = cdb.QueryRow(
+		"SELECT COUNT(*) FROM databases WHERE id = ? AND user_id = ? AND status = 'active'",
+		uuid, userID).Scan(&n)
+	return err == nil && n > 0
 }

@@ -139,9 +139,12 @@ func FromRequest(r *http.Request) string {
 	return ""
 }
 
-// ValidateFromRequest validates a token from the request for a specific dbName.
-// Returns true if the token is valid and scoped to dbName.
-func ValidateFromRequest(r *http.Request, dbName string) bool {
+// ValidateFromRequest validates a token from the request for a specific dbName
+// and additionally checks the revocation list via isRevoked.
+// isRevoked(tokenID) must return true when the token has been revoked — the
+// caller is responsible for querying the registry. On any revocation-check
+// error, favour security: treat as revoked (return false).
+func ValidateFromRequest(r *http.Request, dbName string, isRevoked func(tokenID string) bool) bool {
 	raw := FromRequest(r)
 	if raw == "" {
 		return false
@@ -150,7 +153,13 @@ func ValidateFromRequest(r *http.Request, dbName string) bool {
 	if err != nil {
 		return false
 	}
-	return p.DBName == dbName
+	if p.DBName != dbName {
+		return false
+	}
+	if isRevoked(p.TokenID) {
+		return false
+	}
+	return true
 }
 
 // computeSig returns base64url(HMAC-SHA256(secret, payloadB64)).

@@ -14,9 +14,9 @@ COPY server/ ./
 RUN CGO_ENABLED=1 GOOS=linux go build -ldflags="-s -w" -o sqlite-hub-server ./cmd/server
 
 # ─────────────────────────────────────────────────────────────────────────────
-# Stage 2: Build the Next.js UI
+# Stage 2: Build the Vite admin UI
 # ─────────────────────────────────────────────────────────────────────────────
-FROM node:24-alpine AS nextjs-builder
+FROM node:24-alpine AS ui-builder
 
 RUN apk add --no-cache python3 make g++
 
@@ -25,10 +25,15 @@ COPY package.json pnpm-lock.yaml ./
 RUN corepack enable pnpm && pnpm install --frozen-lockfile
 
 COPY . .
+
+# Env vars baked into the JS bundle at build time by Vite
+ARG NEXT_PUBLIC_ENABLE_FILE_STORAGE=false
+ENV NEXT_PUBLIC_ENABLE_FILE_STORAGE=$NEXT_PUBLIC_ENABLE_FILE_STORAGE
+
 RUN pnpm build
 
 # ─────────────────────────────────────────────────────────────────────────────
-# Development stage — hot-reload for both Go (air) and Next.js
+# Development stage — hot-reload for both Go (air) and Vite
 # Must come before the production stage so that `docker build` (and Railway)
 # targets `production` by default (last stage wins).
 # ─────────────────────────────────────────────────────────────────────────────
@@ -67,23 +72,18 @@ EXPOSE 443
 CMD ["/app/start.sh"]
 
 # ─────────────────────────────────────────────────────────────────────────────
-# Stage 3: Production image — Caddy + supervisord + Go binary + Next.js standalone
+# Stage 3: Production image — Caddy + supervisord + Go binary + static Vite dist
 # This is the last stage — Docker and Railway build this target by default.
 # ─────────────────────────────────────────────────────────────────────────────
 FROM caddy:2-alpine AS production
 
 # Runtime deps: supervisord, curl for health checks, libc / libgcc for CGO binary.
-# Node.js is copied from the builder stage so that the V8 ABI exactly matches
-# what better-sqlite3 was compiled against (Alpine's apk nodejs lacks V8 symbols).
 RUN apk add --no-cache \
     supervisor \
     curl \
     libgcc \
     libstdc++ \
     libc6-compat
-
-# Copy the exact Node.js binary used to build the standalone app
-COPY --from=nextjs-builder /usr/local/bin/node /usr/local/bin/node
 
 WORKDIR /app
 
@@ -93,10 +93,8 @@ RUN mkdir -p /data/files/blobs
 # ── Go binary ────────────────────────────────────────────────────────────────
 COPY --from=go-builder /build/sqlite-hub-server ./server/sqlite-hub-server
 
-# ── Next.js standalone build ─────────────────────────────────────────────────
-COPY --from=nextjs-builder /app/.next/standalone        ./nextjs/
-COPY --from=nextjs-builder /app/public                  ./nextjs/public
-COPY --from=nextjs-builder /app/.next/static            ./nextjs/.next/static
+# ── Vite static build ────────────────────────────────────────────────────────
+COPY --from=ui-builder /app/dist ./dist
 
 # ── supervisord config ───────────────────────────────────────────────────────
 COPY supervisord.conf /etc/supervisor/conf.d/sqlite-hub.conf

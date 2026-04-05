@@ -35,6 +35,7 @@ type Config struct {
 	NubeAppSecret   string
 	ControlDBSecret string
 	AdminInitSecret string
+	ControlOrigin   string // public URL of the control FE (e.g. https://app.mesahub.app)
 	CORSOrigins     string
 
 	// Operational limits
@@ -43,6 +44,7 @@ type Config struct {
 	MaxSQLBindings          int
 	MaxWriteQueueDepth      int
 	FileMaxSizeBytes        int64
+	FileBulkDeleteMaxIDs    int
 	EnableFileProxyDelivery bool
 	LogLevel                string
 }
@@ -62,12 +64,14 @@ func Load() (*Config, error) {
 		NubeAppSecret:           os.Getenv("NUBE_APP_SECRET"),
 		ControlDBSecret:         os.Getenv("CONTROL_DB_SECRET"),
 		AdminInitSecret:         os.Getenv("ADMIN_INIT_SECRET"),
+		ControlOrigin:           os.Getenv("CONTROL_ORIGIN"),
 		CORSOrigins:             strEnv("CORS_ALLOWED_ORIGINS", ""),
 		MaxVolumeUsagePct:       intEnv("MAX_VOLUME_USAGE_PERCENT", 85),
 		MaxSQLLength:            intEnv("MAX_SQL_LENGTH", 100_000),
 		MaxSQLBindings:          intEnv("MAX_SQL_BINDINGS", 5000),
 		MaxWriteQueueDepth:      intEnv("MAX_WRITE_QUEUE_DEPTH", 256),
 		FileMaxSizeBytes:        int64(intEnv("FILE_MAX_SIZE_BYTES", 104_857_600)), // 100 MB
+		FileBulkDeleteMaxIDs:    intEnv("FILE_BULK_DELETE_MAX_IDS", 100),
 		EnableFileProxyDelivery: strEnv("ENABLE_FILE_PROXY_DELIVERY", "true") != "false",
 		LogLevel:                strEnv("LOG_LEVEL", "info"),
 	}
@@ -86,6 +90,9 @@ func Load() (*Config, error) {
 	}
 	if cfg.Mode == ModeControl && cfg.RedisURL == "" {
 		return nil, fmt.Errorf("REDIS_URL is required when SQLITE_HUB_MODE=control (PKCE state needs Redis)")
+	}
+	if os.Getenv("FILE_TOKEN_SIGNING_SECRET") == "" {
+		return nil, fmt.Errorf("FILE_TOKEN_SIGNING_SECRET is required")
 	}
 
 	// Validate CACHE_MODE. An empty value is resolved at runtime by cache.New()
@@ -114,6 +121,10 @@ func strEnv(key, fallback string) string {
 	}
 	return fallback
 }
+
+// PublicURL returns the public URL of the control FE (CONTROL_ORIGIN).
+// Falls back to an empty string when not set.
+func (c *Config) PublicURL() string { return c.ControlOrigin }
 
 func intEnv(key string, fallback int) int {
 	v := os.Getenv(key)

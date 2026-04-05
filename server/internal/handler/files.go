@@ -7,8 +7,10 @@ import (
 	"io"
 	"net/http"
 	"os"
+	"path/filepath"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/go-chi/chi/v5"
 	"github.com/rs/zerolog/log"
@@ -43,8 +45,11 @@ func (h *FilesHandler) List(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Auth: valid file access token OR normal DB auth.
-	if !filetoken.ValidateFromRequest(r, name) {
+	// Auth: valid (non-revoked) file access token OR normal DB auth.
+	if !filetoken.ValidateFromRequest(r, name, func(tokenID string) bool {
+		revoked, _ := h.registry.IsFileTokenRevoked(tokenID, name)
+		return revoked
+	}) {
 		if code, msg := auth.AuthorizeDB(r, h.cfg, h.cache, rec); code != 0 {
 			ErrorJSON(w, code, msg)
 			return
@@ -61,8 +66,10 @@ func (h *FilesHandler) List(w http.ResponseWriter, r *http.Request) {
 	}
 	offset := queryInt(q, "offset", 0)
 	folderPrefix := q.Get("folder_prefix")
+	sort := q.Get("sort")
+	order := q.Get("order")
 
-	result, err := h.storage.List(name, limit, offset, folderPrefix)
+	result, err := h.storage.List(name, limit, offset, folderPrefix, sort, order)
 	if err != nil {
 		ErrorJSON(w, http.StatusInternalServerError, err.Error())
 		return
@@ -192,8 +199,11 @@ func (h *FilesHandler) serveFile(w http.ResponseWriter, r *http.Request, headOnl
 		return
 	}
 
-	// Auth: file token OR DB auth.
-	if !filetoken.ValidateFromRequest(r, name) {
+	// Auth: valid (non-revoked) file token OR DB auth.
+	if !filetoken.ValidateFromRequest(r, name, func(tokenID string) bool {
+		revoked, _ := h.registry.IsFileTokenRevoked(tokenID, name)
+		return revoked
+	}) {
 		if code, msg := auth.AuthorizeDB(r, h.cfg, h.cache, rec); code != 0 {
 			ErrorJSON(w, code, msg)
 			return
@@ -221,8 +231,10 @@ func (h *FilesHandler) serveFile(w http.ResponseWriter, r *http.Request, headOnl
 	}
 
 	// X-Sendfile delivery — off-load to Caddy/nginx.
+	// Must be a relative path (filename only): Caddy resolves it against the
+	// configured root (/data/files/blobs). An absolute path doubles the prefix.
 	if h.cfg.EnableFileProxyDelivery {
-		w.Header().Set("X-Sendfile", stored.StoragePath)
+		w.Header().Set("X-Sendfile", "/"+filepath.Base(stored.StoragePath))
 		w.WriteHeader(http.StatusOK)
 		return
 	}
@@ -267,7 +279,252 @@ func (h *FilesHandler) DeleteFile(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, map[string]bool{"success": true})
 }
 
-// ── UUID-based handlers (control mode only) ───────────────────────────────────
+// Meta handles GET /api/db/:name/files/:id/meta
+// Returns file metadata only — no blob data is returned.
+func (h *FilesHandler) Meta(w http.ResponseWriter, r *http.Request) {
+	name := chi.URLParam(r, "name")
+	id := chi.URLParam(r, "id")
+
+	rec, err := h.registry.GetDatabase(name)
+	if err != nil || rec == nil {
+		ErrorJSON(w, http.StatusNotFound, "Database not found")
+		return
+	}
+	if code, msg := auth.AuthorizeDB(r, h.cfg, h.cache, rec); code != 0 {
+		ErrorJSON(w, code, msg)
+		return
+	}
+
+	stored, err := h.storage.GetByID(id)
+	if err != nil || stored == nil || stored.DBName != name {
+		ErrorJSON(w, http.StatusNotFound, "File not found")
+		return
+	}
+	writeJSON(w, http.StatusOK, fileRecord(stored, name, r))
+}
+
+// PresignFile handles POST /api/db/:name/files/:id/presign
+// Creates a time-limited HMAC presigned download URL for the file.
+func (h *FilesHandler) PresignFile(w http.ResponseWriter, r *http.Request) {
+	name := chi.URLParam(r, "name")
+	id := chi.URLParam(r, "id")
+
+	rec, err := h.registry.GetDatabase(name)
+	if err != nil || rec == nil {
+		ErrorJSON(w, http.StatusNotFound, "Database not found")
+		return
+	}
+	if code, msg := auth.AuthorizeDB(r, h.cfg, h.cache, rec); code != 0 {
+		ErrorJSON(w, code, msg)
+		return
+	}
+
+	stored, err := h.storage.GetByID(id)
+	if err != nil || stored == nil || stored.DBName != name {
+		ErrorJSON(w, http.StatusNotFound, "File not found")
+		return
+	}
+
+	var body struct {
+		ExpiresIn   int    `json:"expires_in"`
+		Disposition string `json:"disposition"` // "inline" or "attachment"
+	}
+	_ = decodeJSONOpt(r, &body)
+
+	result, err := filetoken.Create(name, body.ExpiresIn)
+	if err != nil {
+		ErrorJSON(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+
+	// Build the presigned URL pointing at the shortlink route on the API server.
+	scheme := "https"
+	if r.TLS == nil {
+		scheme = "http"
+	}
+	host := r.Host
+	disp := body.Disposition
+	if disp != "attachment" && disp != "inline" {
+		disp = "inline"
+	}
+	presignedURL := fmt.Sprintf("%s://%s/%s/file/%s?token=%s&dis=%s",
+		scheme, host, name, id, result.Token, disp)
+
+	log.Info().Str("db", name).Str("file", id).Msg("[files] presigned")
+	writeJSON(w, http.StatusOK, map[string]any{
+		"url":        presignedURL,
+		"token_id":   result.TokenID,
+		"expires_at": result.ExpiresAt.UTC().Format(time.RFC3339),
+		"expires_in": result.ExpiresIn,
+	})
+}
+
+// PresignBatch handles POST /api/db/:name/files/presign/batch
+// Batch-presigns up to FileBulkDeleteMaxIDs file IDs.
+func (h *FilesHandler) PresignBatch(w http.ResponseWriter, r *http.Request) {
+	name := chi.URLParam(r, "name")
+
+	rec, err := h.registry.GetDatabase(name)
+	if err != nil || rec == nil {
+		ErrorJSON(w, http.StatusNotFound, "Database not found")
+		return
+	}
+	if code, msg := auth.AuthorizeDB(r, h.cfg, h.cache, rec); code != 0 {
+		ErrorJSON(w, code, msg)
+		return
+	}
+
+	var body struct {
+		IDs       []string `json:"ids"`
+		ExpiresIn int      `json:"expires_in"`
+	}
+	if !decodeJSON(w, r, &body) {
+		return
+	}
+	if len(body.IDs) == 0 {
+		ErrorJSON(w, http.StatusBadRequest, "ids must be a non-empty array")
+		return
+	}
+	maxIDs := h.cfg.FileBulkDeleteMaxIDs
+	if maxIDs <= 0 {
+		maxIDs = 100
+	}
+	if len(body.IDs) > maxIDs {
+		ErrorJSON(w, http.StatusBadRequest, fmt.Sprintf("too many ids — maximum is %d", maxIDs))
+		return
+	}
+
+	scheme := "https"
+	if r.TLS == nil {
+		scheme = "http"
+	}
+	host := r.Host
+
+	type result struct {
+		ID  string `json:"id"`
+		URL string `json:"url"`
+	}
+	results := make([]result, 0, len(body.IDs))
+	for _, fileID := range body.IDs {
+		tok, err := filetoken.Create(name, body.ExpiresIn)
+		if err != nil {
+			ErrorJSON(w, http.StatusInternalServerError, err.Error())
+			return
+		}
+		u := fmt.Sprintf("%s://%s/%s/file/%s?token=%s", scheme, host, name, fileID, tok.Token)
+		results = append(results, result{ID: fileID, URL: u})
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"results": results})
+}
+
+// BulkDeleteFiles handles POST /api/db/:name/files/bulk-delete
+// Deletes multiple files in a single call.
+func (h *FilesHandler) BulkDeleteFiles(w http.ResponseWriter, r *http.Request) {
+	name := chi.URLParam(r, "name")
+
+	rec, err := h.registry.GetDatabase(name)
+	if err != nil || rec == nil {
+		ErrorJSON(w, http.StatusNotFound, "Database not found")
+		return
+	}
+	if code, msg := auth.AuthorizeDB(r, h.cfg, h.cache, rec); code != 0 {
+		ErrorJSON(w, code, msg)
+		return
+	}
+
+	var body struct {
+		IDs []string `json:"ids"`
+	}
+	if !decodeJSON(w, r, &body) {
+		return
+	}
+	if len(body.IDs) == 0 {
+		ErrorJSON(w, http.StatusBadRequest, "ids must be a non-empty array")
+		return
+	}
+	maxIDs := h.cfg.FileBulkDeleteMaxIDs
+	if maxIDs <= 0 {
+		maxIDs = 100
+	}
+	if len(body.IDs) > maxIDs {
+		ErrorJSON(w, http.StatusBadRequest, fmt.Sprintf("too many ids — maximum is %d", maxIDs))
+		return
+	}
+
+	var deleted, failed int
+	for _, id := range body.IDs {
+		if err := h.storage.DeleteByID(id, name); err != nil {
+			failed++
+		} else {
+			deleted++
+		}
+	}
+	log.Info().Str("db", name).Int("deleted", deleted).Int("failed", failed).Msg("[files] bulk delete")
+	writeJSON(w, http.StatusOK, map[string]any{
+		"deleted": deleted,
+		"failed":  failed,
+		"success": failed == 0,
+	})
+}
+
+// FileShortlink handles GET /{dbName}/file/{fileId}
+// Serves a file via X-Sendfile using a presigned file-access token.
+// No admin session required — only a valid file access token.
+func (h *FilesHandler) FileShortlink(w http.ResponseWriter, r *http.Request) {
+	dbName := chi.URLParam(r, "dbName")
+	id := chi.URLParam(r, "id")
+
+	if !filetoken.ValidateFromRequest(r, dbName, func(tokenID string) bool {
+		revoked, _ := h.registry.IsFileTokenRevoked(tokenID, dbName)
+		return revoked
+	}) {
+		ErrorJSON(w, http.StatusUnauthorized, "Missing or invalid file access token")
+		return
+	}
+
+	stored, err := h.storage.GetByID(id)
+	if err != nil || stored == nil || stored.DBName != dbName {
+		ErrorJSON(w, http.StatusNotFound, "File not found")
+		return
+	}
+
+	// Honour expires_at — return 410 Gone if the file record has expired.
+	if stored.ExpiresAt.Valid && stored.ExpiresAt.String != "" {
+		expAt, parseErr := time.Parse("2006-01-02 15:04:05", stored.ExpiresAt.String)
+		if parseErr == nil && time.Now().After(expAt) {
+			ErrorJSON(w, http.StatusGone, "File has expired")
+			return
+		}
+	}
+
+	ct := stored.ContentType.String
+	if ct == "" {
+		ct = "application/octet-stream"
+	}
+	disp := r.URL.Query().Get("dis")
+	if disp != "attachment" && disp != "inline" {
+		disp = "inline"
+	}
+	w.Header().Set("Content-Type", ct)
+	w.Header().Set("Content-Length", strconv.FormatInt(stored.SizeBytes, 10))
+	w.Header().Set("Content-Disposition",
+		disp+"; filename=\""+strings.ReplaceAll(stored.Filename, `"`, `\"`)+`"`)
+
+	if h.cfg.EnableFileProxyDelivery {
+		w.Header().Set("X-Sendfile", "/"+filepath.Base(stored.StoragePath))
+		w.WriteHeader(http.StatusOK)
+		return
+	}
+
+	f, err := os.Open(stored.StoragePath)
+	if err != nil {
+		ErrorJSON(w, http.StatusInternalServerError, "file unavailable")
+		return
+	}
+	defer f.Close()
+	w.WriteHeader(http.StatusOK)
+	_, _ = io.Copy(w, f)
+}
 
 // resolveUUID is a shared helper that looks up a UUID, fetches the registry
 // record, and authorizes the request. Returns the template name and record on
@@ -308,8 +565,10 @@ func (h *FilesHandler) ListByUUID(w http.ResponseWriter, r *http.Request) {
 	}
 	offset := queryInt(q, "offset", 0)
 	folderPrefix := q.Get("folder_prefix")
+	sort := q.Get("sort")
+	order := q.Get("order")
 
-	result, err := h.storage.List(templateName, limit, offset, folderPrefix)
+	result, err := h.storage.List(templateName, limit, offset, folderPrefix, sort, order)
 	if err != nil {
 		ErrorJSON(w, http.StatusInternalServerError, err.Error())
 		return

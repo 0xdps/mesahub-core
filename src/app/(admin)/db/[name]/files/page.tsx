@@ -1,7 +1,8 @@
 "use client";
 
 import Link from "next/link";
-import { use, useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
+import { useParams } from "react-router-dom";
 import {
   Folder,
   File,
@@ -102,12 +103,8 @@ function normalizeFolderPathInput(input: string): string {
   return parts.join("/");
 }
 
-export default function DbFilesPage({
-  params,
-}: {
-  params: Promise<{ name: string }>;
-}) {
-  const { name } = use(params);
+export default function DbFilesPage() {
+  const { name = '' } = useParams<{ name: string }>();
 
   const [rows, setRows] = useState<FileRow[]>([]);
   const [currentFolder, setCurrentFolder] = useState("");

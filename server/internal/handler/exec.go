@@ -15,6 +15,7 @@ import (
 	"github.com/0xdps/sqlite-hub/server/internal/config"
 	"github.com/0xdps/sqlite-hub/server/internal/db"
 	"github.com/0xdps/sqlite-hub/server/internal/queue"
+	"github.com/0xdps/sqlite-hub/server/internal/telemetry"
 )
 
 // SQL classifiers (case-insensitive prefix match).
@@ -41,11 +42,12 @@ type ExecHandler struct {
 	queue    *queue.Queue
 	registry *db.Registry
 	cache    cache.Client
+	tel      *telemetry.Counters
 }
 
 // NewExecHandler creates an ExecHandler.
-func NewExecHandler(cfg *config.Config, pool *db.Pool, wq *queue.Queue, registry *db.Registry, c cache.Client) *ExecHandler {
-	return &ExecHandler{cfg: cfg, pool: pool, queue: wq, registry: registry, cache: c}
+func NewExecHandler(cfg *config.Config, pool *db.Pool, wq *queue.Queue, registry *db.Registry, c cache.Client, tel *telemetry.Counters) *ExecHandler {
+	return &ExecHandler{cfg: cfg, pool: pool, queue: wq, registry: registry, cache: c, tel: tel}
 }
 
 // Exec handles POST /api/db/:name/exec.
@@ -97,12 +99,14 @@ func (h *ExecHandler) Exec(w http.ResponseWriter, r *http.Request) {
 func (h *ExecHandler) execRead(w http.ResponseWriter, r *http.Request, name, sqlStr string, bindings []any) {
 	sqlDB, err := h.pool.Get(name)
 	if err != nil {
+		h.tel.IncError()
 		ErrorJSON(w, http.StatusInternalServerError, "failed to open database")
 		return
 	}
 	start := time.Now()
 	rows, err := sqlDB.QueryContext(r.Context(), sqlStr, anySliceToDriverValues(bindings)...)
 	if err != nil {
+		h.tel.IncError()
 		ErrorJSON(w, http.StatusBadRequest, err.Error())
 		return
 	}
@@ -110,15 +114,18 @@ func (h *ExecHandler) execRead(w http.ResponseWriter, r *http.Request, name, sql
 
 	headers, rowData, rowsRead, err := scanRows(rows)
 	if err != nil {
+		h.tel.IncError()
 		ErrorJSON(w, http.StatusInternalServerError, err.Error())
 		return
 	}
+	elapsed := time.Since(start).Milliseconds()
+	h.tel.IncRead(elapsed)
 	writeJSON(w, http.StatusOK, map[string]any{
 		"headers": headers,
 		"rows":    rowData,
 		"stat": map[string]any{
 			"rowsRead":        rowsRead,
-			"queryDurationMs": time.Since(start).Milliseconds(),
+			"queryDurationMs": elapsed,
 		},
 	})
 }
@@ -173,11 +180,13 @@ func (h *ExecHandler) execWrite(w http.ResponseWriter, r *http.Request, name, sq
 
 	if qErr != nil {
 		log.Error().Err(qErr).Str("db", name).Msg("[exec] write queue error")
+		h.tel.IncError()
 		ErrorJSON(w, http.StatusBadRequest, qErr.Error())
 		return
 	}
 
 	if isReader {
+		h.tel.IncRead(elapsed)
 		writeJSON(w, http.StatusOK, map[string]any{
 			"headers": headers,
 			"rows":    rowData,
@@ -187,6 +196,7 @@ func (h *ExecHandler) execWrite(w http.ResponseWriter, r *http.Request, name, sq
 			},
 		})
 	} else {
+		h.tel.IncWrite(elapsed)
 		writeJSON(w, http.StatusOK, map[string]any{
 			"rowsAffected":    rowsAffected,
 			"lastInsertRowid": lastInsertRowid,
@@ -203,7 +213,7 @@ func (h *ExecHandler) execWrite(w http.ResponseWriter, r *http.Request, name, sq
 func (h *ExecHandler) ExecByUUID(w http.ResponseWriter, r *http.Request) {
 	uuid := chi.URLParam(r, "uuid")
 
-	templateName, _, err := auth.LookupByUUID(h.cfg.DataPath, uuid)
+	templateName, ownerID, err := auth.LookupByUUID(h.cfg.DataPath, uuid)
 	if err != nil {
 		ErrorJSON(w, http.StatusNotFound, "Database not found")
 		return
@@ -211,6 +221,13 @@ func (h *ExecHandler) ExecByUUID(w http.ResponseWriter, r *http.Request) {
 
 	rec, err := h.registry.GetDatabase(templateName)
 	if err != nil || rec == nil {
+		// DB exists in control.db but not yet registered (created before auto-register).
+		// Register it on the fly so subsequent requests also succeed.
+		if _, regErr := h.registry.InsertDatabase(templateName, ownerID, nil, nil); regErr == nil {
+			rec, _ = h.registry.GetDatabase(templateName)
+		}
+	}
+	if rec == nil {
 		ErrorJSON(w, http.StatusNotFound, "Database not found")
 		return
 	}
