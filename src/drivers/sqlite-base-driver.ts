@@ -175,8 +175,6 @@ export class SqliteLikeBaseDriver extends CommonSQLImplement {
     return {
       columns,
       schemaName,
-      tableName,
-      type: "table",
       pk: columns.filter((col) => col.pk).map((col) => col.name),
       autoIncrement: hasAutoIncrement,
     };

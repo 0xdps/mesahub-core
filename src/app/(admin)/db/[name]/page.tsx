@@ -4,11 +4,14 @@ import { Studio } from "@/components/gui/studio";
 import { StudioExtensionManager } from "@/core/extension-manager";
 import { createSQLiteExtensions } from "@/core/standard-extension";
 import FilebDbDriver from "@/drivers/database/filedb";
-import { useEffect, useMemo, useState } from "react";
-import { useParams } from "react-router-dom";
+import { use, useEffect, useMemo, useState } from "react";
 
-export default function DbViewerPage() {
-  const { name = '' } = useParams<{ name: string }>();
+export default function DbViewerPage({
+  params,
+}: {
+  params: Promise<{ name: string }>;
+}) {
+  const { name } = use(params);
   const [inactive, setInactive] = useState(false);
 
   useEffect(() => {

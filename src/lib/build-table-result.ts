@@ -145,7 +145,7 @@ function pipeEditableTable(
         table.columns.push(from.column);
       } else {
         const pkColumns =
-          schemas[from.schema]?.find((t) => t.tableName === from.table)
+          schemas[from.schema].find((t) => t.tableName === from.table)
             ?.tableSchema?.pk ?? [];
 
         tables.push({

@@ -46,18 +46,16 @@ function InputCellEditor({
   const shouldExit = useRef(true);
 
   useEffect(() => {
-    const id = requestAnimationFrame(() => {
-      if (inputRef.current) {
-        inputRef.current.select();
-        inputRef.current.focus();
-      }
-    });
-    return () => cancelAnimationFrame(id);
-  }, []);
+    if (inputRef.current) {
+      inputRef.current.select();
+      inputRef.current.focus();
+    }
+  }, [inputRef]);
 
   return (
     <input
       ref={inputRef}
+      autoFocus
       readOnly={readOnly}
       onBlur={() => {
         applyChange(value, shouldExit.current);
