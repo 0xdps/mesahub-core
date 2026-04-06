@@ -33,7 +33,9 @@ export default async function DashboardPage() {
   const dbs: DbRecord[] = dbsRes?.ok ? await dbsRes.json() : [];
   const metrics: MetricsResponse | null = metricsRes?.ok ? await metricsRes.json() : null;
 
-  const activeDbs = dbs.filter((d) => d.status === "active");
+  const SYSTEM_DBS = new Set(["registry", "control"]);
+  const userDbs = dbs.filter((d) => !SYSTEM_DBS.has(d.name));
+  const activeDbs = userDbs.filter((d) => d.status === "active");
   const volume = metrics
     ? {
         used: metrics.volume_used_bytes,
@@ -51,12 +53,20 @@ export default async function DashboardPage() {
             {activeDbs.length} active database{activeDbs.length !== 1 ? "s" : ""}
           </p>
         </div>
-        <Link
-          href="/db/new"
-          className="text-sm bg-white text-black px-3 py-1.5 rounded font-medium hover:bg-neutral-200 transition-colors"
-        >
-          + New database
-        </Link>
+        <div className="flex items-center gap-2">
+          <Link
+            href="/buckets"
+            className="text-sm text-neutral-400 hover:text-white px-3 py-1.5 rounded border border-neutral-700 hover:border-neutral-600 transition-colors"
+          >
+            Buckets
+          </Link>
+          <Link
+            href="/db/new"
+            className="text-sm bg-white text-black px-3 py-1.5 rounded font-medium hover:bg-neutral-200 transition-colors"
+          >
+            + New database
+          </Link>
+        </div>
       </div>
 
       {/* Volume usage */}
@@ -77,6 +87,49 @@ export default async function DashboardPage() {
       </div>
       )}
 
+      {/* System databases */}
+      <div className="mb-8">
+        <h2 className="text-sm font-medium text-neutral-400 uppercase tracking-wide mb-3">System databases</h2>
+        <div className="rounded-lg border border-neutral-800 overflow-hidden">
+          <table className="w-full text-sm">
+            <thead className="bg-neutral-800 text-neutral-400 text-xs uppercase">
+              <tr>
+                <th className="text-left px-4 py-3">Name</th>
+                <th className="text-left px-4 py-3">Description</th>
+                <th className="text-right px-4 py-3">Actions</th>
+              </tr>
+            </thead>
+            <tbody className="divide-y divide-neutral-800">
+              {(["registry", "control"] as const).map((sysName) => (
+                <tr key={sysName} className="hover:bg-neutral-800/40 transition-colors">
+                  <td className="px-4 py-3">
+                    <div className="flex items-center gap-2">
+                      <span className="font-mono text-white">{sysName}</span>
+                      <span className="inline-block px-1.5 py-0.5 rounded text-xs font-medium bg-amber-900/50 text-amber-400 border border-amber-800/50">
+                        system
+                      </span>
+                    </div>
+                  </td>
+                  <td className="px-4 py-3 text-neutral-500 text-xs">
+                    {sysName === "registry"
+                      ? "Stores all database records, service secrets, and metadata"
+                      : "Stores user accounts, API keys, and control-plane data"}
+                  </td>
+                  <td className="px-4 py-3 text-right">
+                    <Link
+                      href={`/db/system/${sysName}`}
+                      className="text-xs text-blue-400 hover:text-blue-300"
+                    >
+                      Browse →
+                    </Link>
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      </div>
+
       {/* Deleted databases link */}
       <div className="mb-8">
         <Link
@@ -88,7 +141,7 @@ export default async function DashboardPage() {
       </div>
 
       {/* DB table */}
-      {dbs.length === 0 ? (
+      {userDbs.length === 0 ? (
         <div className="text-center py-16 text-neutral-500 text-sm">
           No databases yet.{" "}
           <Link href="/db/new" className="text-white underline">
@@ -110,7 +163,7 @@ export default async function DashboardPage() {
               </tr>
             </thead>
             <tbody className="divide-y divide-neutral-800">
-              {dbs.map((db) => (
+              {userDbs.map((db) => (
                 <tr key={db.id} className="hover:bg-neutral-800/40 transition-colors">
                   <td className="px-4 py-3 font-mono text-white">{db.name}</td>
                   <td className="px-4 py-3 text-neutral-300">{db.owner}</td>

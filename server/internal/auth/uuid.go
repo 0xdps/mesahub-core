@@ -91,32 +91,25 @@ func AuthorizeDBByUUID(r *http.Request, cfg *config.Config, c cache.Client, reco
 		if !ok || kv.UserID != record.Owner {
 			return http.StatusUnauthorized, "Unauthorized"
 		}
-		// For "databases"-scoped keys the allow-list stores UUIDs, so compare
-		// against the URL uuid parameter, not the template-internal name.
-		if kv.Scope == "databases" {
-			allowed := false
-			for _, did := range kv.DatabaseIDs {
-				if did == uuid {
-					allowed = true
-					break
-				}
-			}
-			if !allowed {
-				return http.StatusForbidden, "This API key does not have access to this database"
-			}
-		}
-		return 0, ""
-	}
-
-	if record.ServiceSecret.Valid && record.ServiceSecret.String != "" {
-		if bearer != "" && TimingSafeMatch(bearer, record.ServiceSecret.String) {
+		// Scope enforcement using the new string format.
+		// db:* or all → access any owned DB; db:<name> checked against template name.
+		// For UUID routes we also accept db:<name> where name is the user-visible name.
+		switch {
+		case kv.Scope == "all" || kv.Scope == "db:*":
 			return 0, ""
+		case strings.HasPrefix(kv.Scope, "db:"):
+			scopedName := kv.Scope[3:]
+			// Match against template-internal name (stored in record.Name)
+			if scopedName == record.Name {
+				return 0, ""
+			}
+			return http.StatusForbidden, "This API key does not have access to this database"
+		default:
+			return http.StatusForbidden, "This API key does not have access to this database"
 		}
-		return http.StatusUnauthorized, "Unauthorized"
 	}
 
-	return http.StatusForbidden,
-		"Forbidden: this database has no service_secret — set a service_secret for API access"
+	return http.StatusUnauthorized, "Unauthorized"
 }
 
 // IsOwnedByControlUser reports whether the database with the given UUID is

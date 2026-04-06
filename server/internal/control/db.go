@@ -51,7 +51,6 @@ CREATE TABLE IF NOT EXISTS databases (
   display_name TEXT NOT NULL,
   description  TEXT,
   instance_id  TEXT REFERENCES instances(id),
-  service_secret TEXT,
   status       TEXT NOT NULL DEFAULT 'active',
   size_bytes   INTEGER NOT NULL DEFAULT 0,
   created_at   TEXT NOT NULL DEFAULT (datetime('now')),
@@ -59,6 +58,27 @@ CREATE TABLE IF NOT EXISTS databases (
   UNIQUE(user_id, name)
 );
 
+CREATE TABLE IF NOT EXISTS buckets (
+  id           TEXT PRIMARY KEY,
+  user_id      TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  name         TEXT NOT NULL,          -- template-internal unique name
+  display_name TEXT NOT NULL,
+  description  TEXT,
+  instance_id  TEXT REFERENCES instances(id),
+  status       TEXT NOT NULL DEFAULT 'active',
+  size_bytes   INTEGER NOT NULL DEFAULT 0,
+  created_at   TEXT NOT NULL DEFAULT (datetime('now')),
+  updated_at   TEXT,
+  UNIQUE(user_id, name)
+);
+
+-- Unified API keys for both databases and buckets.
+-- scope examples:
+--   'all'            → all databases and buckets
+--   'db:*'           → all databases
+--   'bucket:*'       → all buckets
+--   'db:mydb'        → specific database by name
+--   'bucket:photos'  → specific bucket by name
 CREATE TABLE IF NOT EXISTS api_keys (
   id           TEXT PRIMARY KEY,
   user_id      TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
@@ -70,28 +90,24 @@ CREATE TABLE IF NOT EXISTS api_keys (
   created_at   TEXT NOT NULL DEFAULT (datetime('now'))
 );
 
-CREATE TABLE IF NOT EXISTS api_key_databases (
-  api_key_id  TEXT NOT NULL REFERENCES api_keys(id) ON DELETE CASCADE,
-  database_id TEXT NOT NULL REFERENCES databases(id) ON DELETE CASCADE,
-  PRIMARY KEY (api_key_id, database_id)
-);
-
 CREATE TABLE IF NOT EXISTS usage (
-  id               TEXT PRIMARY KEY,
-  user_id          TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
-  period_year      INTEGER NOT NULL,
-  period_month     INTEGER NOT NULL,
-  queries_executed INTEGER NOT NULL DEFAULT 0,
-  exec_executed    INTEGER NOT NULL DEFAULT 0,
-  api_calls        INTEGER NOT NULL DEFAULT 0,
-  storage_bytes    INTEGER NOT NULL DEFAULT 0,
-  calls_success    INTEGER NOT NULL DEFAULT 0,
-  calls_client_err INTEGER NOT NULL DEFAULT 0,
-  calls_server_err INTEGER NOT NULL DEFAULT 0,
+  id                 TEXT PRIMARY KEY,
+  user_id            TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  period_year        INTEGER NOT NULL,
+  period_month       INTEGER NOT NULL,
+  queries_executed   INTEGER NOT NULL DEFAULT 0,
+  exec_executed      INTEGER NOT NULL DEFAULT 0,
+  api_calls          INTEGER NOT NULL DEFAULT 0,
+  storage_bytes      INTEGER NOT NULL DEFAULT 0,
+  bucket_bytes       INTEGER NOT NULL DEFAULT 0,
+  calls_success      INTEGER NOT NULL DEFAULT 0,
+  calls_client_err   INTEGER NOT NULL DEFAULT 0,
+  calls_server_err   INTEGER NOT NULL DEFAULT 0,
   UNIQUE(user_id, period_year, period_month)
 );
 
 CREATE INDEX IF NOT EXISTS idx_databases_user_id ON databases(user_id);
+CREATE INDEX IF NOT EXISTS idx_buckets_user_id   ON buckets(user_id);
 CREATE INDEX IF NOT EXISTS idx_api_keys_user_id  ON api_keys(user_id);
 CREATE INDEX IF NOT EXISTS idx_api_keys_hash     ON api_keys(key_hash);
 CREATE INDEX IF NOT EXISTS idx_usage_user_period ON usage(user_id, period_year, period_month);
@@ -104,8 +120,26 @@ var migrations = []string{
 	`ALTER TABLE users     ADD COLUMN updated_at    TEXT`,
 	`ALTER TABLE databases ADD COLUMN description   TEXT`,
 	`ALTER TABLE databases ADD COLUMN instance_id   TEXT REFERENCES instances(id)`,
-	`ALTER TABLE databases ADD COLUMN service_secret TEXT`,
 	`ALTER TABLE databases ADD COLUMN updated_at    TEXT`,
+	// Remove service_secret from databases — auth moves to api_keys
+	// (SQLite cannot DROP COLUMN in older versions; we simply stop reading/writing it)
+	// Copy legacy sqlite_hub_instance_id → instance_id for pre-migration rows
+	`UPDATE databases SET instance_id = sqlite_hub_instance_id WHERE instance_id IS NULL AND sqlite_hub_instance_id IS NOT NULL`,
+	`CREATE TABLE IF NOT EXISTS buckets (
+	  id           TEXT PRIMARY KEY,
+	  user_id      TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+	  name         TEXT NOT NULL,
+	  display_name TEXT NOT NULL,
+	  description  TEXT,
+	  instance_id  TEXT REFERENCES instances(id),
+	  status       TEXT NOT NULL DEFAULT 'active',
+	  size_bytes   INTEGER NOT NULL DEFAULT 0,
+	  created_at   TEXT NOT NULL DEFAULT (datetime('now')),
+	  updated_at   TEXT,
+	  UNIQUE(user_id, name)
+	)`,
+	`CREATE INDEX IF NOT EXISTS idx_buckets_user_id ON buckets(user_id)`,
+	`ALTER TABLE usage ADD COLUMN bucket_bytes INTEGER NOT NULL DEFAULT 0`,
 }
 
 // ── DB wrapper ────────────────────────────────────────────────────────────────
@@ -152,17 +186,30 @@ type User struct {
 
 // Database is a control-plane database record.
 type Database struct {
-	ID            string  `json:"id"`
-	UserID        string  `json:"user_id"`
-	Name          string  `json:"name"`
-	DisplayName   string  `json:"display_name"`
-	Description   *string `json:"description,omitempty"`
-	InstanceID    *string `json:"instance_id,omitempty"`
-	ServiceSecret *string `json:"-"` // never serialised
-	Status        string  `json:"status"`
-	SizeBytes     int64   `json:"size_bytes"`
-	CreatedAt     string  `json:"created_at"`
-	UpdatedAt     *string `json:"updated_at,omitempty"`
+	ID          string  `json:"id"`
+	UserID      string  `json:"user_id"`
+	Name        string  `json:"name"`
+	DisplayName string  `json:"display_name"`
+	Description *string `json:"description,omitempty"`
+	InstanceID  *string `json:"instance_id,omitempty"`
+	Status      string  `json:"status"`
+	SizeBytes   int64   `json:"size_bytes"`
+	CreatedAt   string  `json:"created_at"`
+	UpdatedAt   *string `json:"updated_at,omitempty"`
+}
+
+// Bucket is a control-plane file-bucket record.
+type Bucket struct {
+	ID          string  `json:"id"`
+	UserID      string  `json:"user_id"`
+	Name        string  `json:"name"`
+	DisplayName string  `json:"display_name"`
+	Description *string `json:"description,omitempty"`
+	InstanceID  *string `json:"instance_id,omitempty"`
+	Status      string  `json:"status"`
+	SizeBytes   int64   `json:"size_bytes"`
+	CreatedAt   string  `json:"created_at"`
+	UpdatedAt   *string `json:"updated_at,omitempty"`
 }
 
 // Usage holds per-user monthly usage counters.
@@ -175,6 +222,7 @@ type Usage struct {
 	ExecExecuted    int64  `json:"exec_executed"`
 	APICalls        int64  `json:"api_calls"`
 	StorageBytes    int64  `json:"storage_bytes"`
+	BucketBytes     int64  `json:"bucket_bytes"`
 	CallsSuccess    int64  `json:"calls_success"`
 	CallsClientErr  int64  `json:"calls_client_err"`
 	CallsServerErr  int64  `json:"calls_server_err"`
@@ -182,14 +230,13 @@ type Usage struct {
 
 // APIKey is a control-plane API key record (key_hash is never exposed via JSON).
 type APIKey struct {
-	ID          string   `json:"id"`
-	UserID      string   `json:"user_id"`
-	Name        string   `json:"name"`
-	Scope       string   `json:"scope"`
-	Status      string   `json:"status"`
-	DatabaseIDs []string `json:"database_ids,omitempty"`
-	LastUsedAt  *string  `json:"last_used_at"`
-	CreatedAt   string   `json:"created_at"`
+	ID         string  `json:"id"`
+	UserID     string  `json:"user_id"`
+	Name       string  `json:"name"`
+	Scope      string  `json:"scope"`
+	Status     string  `json:"status"`
+	LastUsedAt *string `json:"last_used_at"`
+	CreatedAt  string  `json:"created_at"`
 }
 
 // ── User ops ──────────────────────────────────────────────────────────────────
@@ -293,9 +340,79 @@ func (c *ControlDB) UpdateDatabaseSize(name string, sizeBytes int64) error {
 	return err
 }
 
+// ── Bucket ops ────────────────────────────────────────────────────────────────
+
+// ListBuckets returns all non-deleted buckets for a user.
+func (c *ControlDB) ListBuckets(userID string) ([]Bucket, error) {
+	rows, err := c.db.Query(
+		`SELECT id, user_id, name, display_name, description, instance_id, status, size_bytes, created_at, updated_at
+		 FROM buckets WHERE user_id = ? AND status != 'deleted'
+		 ORDER BY created_at DESC`, userID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	return scanBuckets(rows)
+}
+
+// GetBucket fetches a bucket by ID.
+func (c *ControlDB) GetBucket(id string) (*Bucket, error) {
+	return scanOneBucket(c.db.QueryRow(
+		`SELECT id, user_id, name, display_name, description, instance_id, status, size_bytes, created_at, updated_at
+		 FROM buckets WHERE id = ?`, id))
+}
+
+// GetBucketByName fetches a bucket by its template-internal name.
+func (c *ControlDB) GetBucketByName(name string) (*Bucket, error) {
+	return scanOneBucket(c.db.QueryRow(
+		`SELECT id, user_id, name, display_name, description, instance_id, status, size_bytes, created_at, updated_at
+		 FROM buckets WHERE name = ? AND status != 'deleted'`, name))
+}
+
+// CountActiveBuckets returns the number of active buckets for a user.
+func (c *ControlDB) CountActiveBuckets(userID string) (int, error) {
+	var n int
+	err := c.db.QueryRow(
+		`SELECT COUNT(*) FROM buckets WHERE user_id = ? AND status = 'active'`, userID,
+	).Scan(&n)
+	return n, err
+}
+
+// CreateBucket inserts a new bucket record.
+func (c *ControlDB) CreateBucket(userID, name, displayName string, instanceID *string) (*Bucket, error) {
+	id := newID()
+	_, err := c.db.Exec(
+		`INSERT INTO buckets (id, user_id, name, display_name, instance_id) VALUES (?, ?, ?, ?, ?)`,
+		id, userID, name, displayName, instanceID)
+	if err != nil {
+		return nil, fmt.Errorf("control: create bucket: %w", err)
+	}
+	return c.GetBucket(id)
+}
+
+// SoftDeleteBucket marks a bucket as deleted.
+func (c *ControlDB) SoftDeleteBucket(id, userID string) error {
+	res, err := c.db.Exec(
+		`UPDATE buckets SET status = 'deleted', updated_at = datetime('now') WHERE id = ? AND user_id = ?`, id, userID)
+	if err != nil {
+		return err
+	}
+	if n, _ := res.RowsAffected(); n == 0 {
+		return fmt.Errorf("control: bucket not found or not owned by user")
+	}
+	return nil
+}
+
+// UpdateBucketSize sets the cached size_bytes for a bucket record.
+func (c *ControlDB) UpdateBucketSize(name string, sizeBytes int64) error {
+	_, err := c.db.Exec(
+		`UPDATE buckets SET size_bytes = ? WHERE name = ?`, sizeBytes, name)
+	return err
+}
+
 // ── API key ops ───────────────────────────────────────────────────────────────
 
-// ListAPIKeys returns all active API keys for a user with their database IDs.
+// ListAPIKeys returns all active API keys for a user.
 func (c *ControlDB) ListAPIKeys(userID string) ([]APIKey, error) {
 	rows, err := c.db.Query(
 		`SELECT id, user_id, name, scope, status, last_used_at, created_at
@@ -305,22 +422,13 @@ func (c *ControlDB) ListAPIKeys(userID string) ([]APIKey, error) {
 		return nil, err
 	}
 	defer rows.Close()
-	keys, err := scanAPIKeys(rows)
-	if err != nil {
-		return nil, err
-	}
-	for i := range keys {
-		keys[i].DatabaseIDs, err = c.apiKeyDatabaseIDs(keys[i].ID)
-		if err != nil {
-			return nil, err
-		}
-	}
-	return keys, nil
+	return scanAPIKeys(rows)
 }
 
 // CreateAPIKey generates a new API key and inserts it.
+// scope examples: 'all', 'db:*', 'db:mydb', 'bucket:*', 'bucket:photos'
 // Returns the created APIKey and the raw key value (shown once only).
-func (c *ControlDB) CreateAPIKey(userID, name, scope string, dbIDs []string) (*APIKey, string, error) {
+func (c *ControlDB) CreateAPIKey(userID, name, scope string) (*APIKey, string, error) {
 	rawKey := "shs_" + randomHex(32)
 	sum := sha256.Sum256([]byte(rawKey))
 	keyHash := hex.EncodeToString(sum[:])
@@ -333,19 +441,10 @@ func (c *ControlDB) CreateAPIKey(userID, name, scope string, dbIDs []string) (*A
 		return nil, "", fmt.Errorf("control: create api key: %w", err)
 	}
 
-	for _, did := range dbIDs {
-		if _, err := c.db.Exec(
-			`INSERT OR IGNORE INTO api_key_databases (api_key_id, database_id) VALUES (?, ?)`,
-			id, did); err != nil {
-			return nil, "", fmt.Errorf("control: link api key database: %w", err)
-		}
-	}
-
 	key, err := c.getAPIKey(id)
 	if err != nil {
 		return nil, "", err
 	}
-	key.DatabaseIDs = dbIDs
 	return key, rawKey, nil
 }
 
@@ -387,12 +486,12 @@ func (c *ControlDB) GetCurrentUsage(userID string) (*Usage, error) {
 	u := &Usage{}
 	err = c.db.QueryRow(`
 		SELECT id, user_id, period_year, period_month,
-		       queries_executed, exec_executed, api_calls, storage_bytes,
+		       queries_executed, exec_executed, api_calls, storage_bytes, bucket_bytes,
 		       calls_success, calls_client_err, calls_server_err
 		FROM usage WHERE user_id = ? AND period_year = ? AND period_month = ?`,
 		userID, year, month,
 	).Scan(&u.ID, &u.UserID, &u.PeriodYear, &u.PeriodMonth,
-		&u.QueriesExecuted, &u.ExecExecuted, &u.APICalls, &u.StorageBytes,
+		&u.QueriesExecuted, &u.ExecExecuted, &u.APICalls, &u.StorageBytes, &u.BucketBytes,
 		&u.CallsSuccess, &u.CallsClientErr, &u.CallsServerErr)
 	if err != nil {
 		return nil, fmt.Errorf("control: get usage: %w", err)
@@ -406,24 +505,6 @@ func (c *ControlDB) getAPIKey(id string) (*APIKey, error) {
 	return scanOneAPIKey(c.db.QueryRow(
 		`SELECT id, user_id, name, scope, status, last_used_at, created_at
 		 FROM api_keys WHERE id = ?`, id))
-}
-
-func (c *ControlDB) apiKeyDatabaseIDs(keyID string) ([]string, error) {
-	rows, err := c.db.Query(
-		`SELECT database_id FROM api_key_databases WHERE api_key_id = ?`, keyID)
-	if err != nil {
-		return nil, err
-	}
-	defer rows.Close()
-	var ids []string
-	for rows.Next() {
-		var id string
-		if err := rows.Scan(&id); err != nil {
-			return nil, err
-		}
-		ids = append(ids, id)
-	}
-	return ids, rows.Err()
 }
 
 func scanDatabases(rows *sql.Rows) ([]Database, error) {
@@ -447,6 +528,29 @@ func scanOneDatabase(row *sql.Row) (*Database, error) {
 		return nil, nil
 	}
 	return d, err
+}
+
+func scanBuckets(rows *sql.Rows) ([]Bucket, error) {
+	var out []Bucket
+	for rows.Next() {
+		var b Bucket
+		if err := rows.Scan(&b.ID, &b.UserID, &b.Name, &b.DisplayName,
+			&b.Description, &b.InstanceID, &b.Status, &b.SizeBytes, &b.CreatedAt, &b.UpdatedAt); err != nil {
+			return nil, err
+		}
+		out = append(out, b)
+	}
+	return out, rows.Err()
+}
+
+func scanOneBucket(row *sql.Row) (*Bucket, error) {
+	b := &Bucket{}
+	err := row.Scan(&b.ID, &b.UserID, &b.Name, &b.DisplayName,
+		&b.Description, &b.InstanceID, &b.Status, &b.SizeBytes, &b.CreatedAt, &b.UpdatedAt)
+	if err == sql.ErrNoRows {
+		return nil, nil
+	}
+	return b, err
 }
 
 func scanAPIKeys(rows *sql.Rows) ([]APIKey, error) {

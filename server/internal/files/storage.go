@@ -141,6 +141,16 @@ func NewStorage(dataPath string, cfg *config.Config) (*Storage, error) {
 // Close shuts down the metadata connection.
 func (s *Storage) Close() error { return s.meta.Close() }
 
+// SumBytesForNamespace returns the total size_bytes of all files stored under
+// the given namespace (db_name), for use in bucket size tracking.
+func (s *Storage) SumBytesForNamespace(ns string) int64 {
+	_, total, err := s.meta.DBUsageStats(ns)
+	if err != nil {
+		return 0
+	}
+	return total
+}
+
 // ── Upload ────────────────────────────────────────────────────────────────────
 
 // Upload validates, stores, and records an uploaded file. It is idempotent when

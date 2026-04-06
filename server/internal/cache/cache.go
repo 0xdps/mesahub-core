@@ -48,13 +48,11 @@ type SessionValue struct {
 }
 
 // APIKeyValue holds the data cached per hashed API key.
-// Scope is "account" (access any DB owned by the user) or "databases"
-// (access only the listed DBs). DatabaseIDs is only populated for scoped keys.
+// Scope format: 'all' | 'db:*' | 'db:<name>' | 'bucket:*' | 'bucket:<name>'
 type APIKeyValue struct {
-	UserID      string   `json:"user_id"`
-	KeyID       string   `json:"key_id"`
-	Scope       string   `json:"scope"`        // "account" | "databases"
-	DatabaseIDs []string `json:"database_ids"` // populated when scope == "databases"
+	UserID string `json:"user_id"`
+	KeyID  string `json:"key_id"`
+	Scope  string `json:"scope"`
 }
 
 // PKCEValue holds PKCE state for the OAuth flow.

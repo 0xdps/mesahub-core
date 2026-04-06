@@ -118,6 +118,7 @@ func main() {
 	systemH := handler.NewSystemHandler(cfg)
 	authH := auth.NewHandler(cfg, cacheClient)
 	internalH := handler.NewInternalHandler(cacheClient)
+	bucketFilesH := handler.NewBucketFilesHandler(cfg, fileStorage, cacheClient)
 
 	// Health + version — no auth required
 	r.Get("/api/health", handler.Health)
@@ -191,7 +192,9 @@ func main() {
 		r.ServeHTTP(w, req)
 	}))
 
-	// ── Control-mode routes (UUID-based API keys + control plane management) ──
+	// ── Control-mode routes (UUID-based API keys) ────────────────────────────
+	// All user management, plan enforcement, and provisioning is handled by
+	// the control plane (Next.js). The Go server only provides data access.
 	if cfg.Mode == config.ModeControl {
 		r.Post("/api/query/{uuid}", queryH.QueryByUUID)
 		r.Post("/api/exec/{uuid}", execH.ExecByUUID)
@@ -201,14 +204,36 @@ func main() {
 		r.Get("/api/files/{uuid}/{id}", filesH.DownloadByUUID)
 		r.Delete("/api/files/{uuid}/{id}", filesH.DeleteFileByUUID)
 
-		// ── Control plane management routes ─────────────────────────────────
+		// Bucket file routes — auth via shs_ API key scope (bucket:* or bucket:<name>).
+		// NOTE: presign/batch and bulk-delete must be registered before {id} routes.
+		r.Get("/api/buckets/{name}/files", bucketFilesH.List)
+		r.Post("/api/buckets/{name}/files", bucketFilesH.Upload)
+		r.Post("/api/buckets/{name}/files/presign/batch", bucketFilesH.PresignBatch)
+		r.Post("/api/buckets/{name}/files/bulk-delete", bucketFilesH.BulkDeleteFiles)
+		r.Head("/api/buckets/{name}/files/{id}", bucketFilesH.HeadFile)
+		r.Get("/api/buckets/{name}/files/{id}", bucketFilesH.Download)
+		r.Delete("/api/buckets/{name}/files/{id}", bucketFilesH.DeleteFile)
+		r.Get("/api/buckets/{name}/files/{id}/meta", bucketFilesH.Meta)
+		r.Post("/api/buckets/{name}/files/{id}/presign", bucketFilesH.PresignFile)
+
+		// Initialise control.db schema so that ValidateAPIKey can read it.
+		// The control plane writes user/key data here via the admin exec endpoint.
 		cdb, err := control.Open(cfg.DataPath)
 		if err != nil {
 			log.Fatal().Err(err).Msg("control DB open failed")
 		}
 		defer cdb.Close()
-		controlH := control.NewHandler(cfg, cdb, cacheClient, registry, pool)
-		control.RegisterRoutes(r, controlH, cdb, cacheClient)
+
+		// Register "control" in registry.db so the standard query/exec handlers
+		// can serve POST /api/db/control/query and /api/db/control/exec.
+		// These endpoints are used by the control plane (Next.js) to read/write
+		// user metadata. INSERT OR IGNORE makes this idempotent on restart.
+		if existing, _ := registry.GetDatabase("control"); existing == nil {
+			if _, err := registry.InsertDatabase("control", "_system", nil, nil); err != nil {
+				log.Fatal().Err(err).Msg("control DB registry insert failed")
+			}
+			log.Info().Msg("registered 'control' database in registry")
+		}
 	}
 
 	// ── Server ────────────────────────────────────────────────────────────────

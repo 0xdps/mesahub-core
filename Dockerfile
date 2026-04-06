@@ -18,6 +18,20 @@ ENV NEXT_PUBLIC_ENABLE_FILE_STORAGE=$NEXT_PUBLIC_ENABLE_FILE_STORAGE
 RUN pnpm build
 
 # ─────────────────────────────────────────────────────────────────────────────
+# Stage 2: Build the Go server binary
+# ─────────────────────────────────────────────────────────────────────────────
+FROM golang:1.24-alpine AS go-builder
+
+RUN apk add --no-cache gcc musl-dev
+
+WORKDIR /app/server
+COPY server/go.mod server/go.sum ./
+RUN go mod download
+
+COPY server/ .
+RUN CGO_ENABLED=1 GOOS=linux go build -o sqlite-hub-server ./cmd/server
+
+# ─────────────────────────────────────────────────────────────────────────────
 # Development stage — hot-reload via Next.js dev server
 # Must come before the production stage so that `docker build` (and Railway)
 # targets `production` by default (last stage wins).
@@ -36,8 +50,11 @@ RUN apk add --no-cache \
 WORKDIR /app
 RUN mkdir -p /data/files/blobs
 
+# ── Go binary ────────────────────────────────────────────────────────────────
+COPY --from=go-builder /app/server/sqlite-hub-server ./server/sqlite-hub-server
+
 COPY dashboard/package.json dashboard/pnpm-lock.yaml ./dashboard/
-RUN cd dashboard && corepack enable pnpm && pnpm install
+RUN npm install -g pnpm && cd dashboard && pnpm install
 
 COPY dashboard/ ./dashboard/
 COPY start.sh /app/start.sh
@@ -69,6 +86,9 @@ RUN mkdir -p /data/files/blobs
 COPY --from=ui-builder /app/dashboard/.next/standalone ./dashboard/.next/standalone
 COPY --from=ui-builder /app/dashboard/.next/static ./dashboard/.next/standalone/.next/static
 COPY --from=ui-builder /app/dashboard/public ./dashboard/.next/standalone/public
+
+# ── Go binary ────────────────────────────────────────────────────────────────
+COPY --from=go-builder /app/server/sqlite-hub-server ./server/sqlite-hub-server
 
 # ── supervisord config ───────────────────────────────────────────────────────
 COPY supervisord.conf /etc/supervisor/conf.d/sqlite-hub.conf

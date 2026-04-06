@@ -16,6 +16,7 @@ export interface StudioContextProps {
   extensions: StudioExtensionManager;
   containerClassName?: string;
   agentDriver?: AgentDriverList;
+  readOnly?: boolean;
 }
 
 const StudioContext = createContext<StudioContextProps>({

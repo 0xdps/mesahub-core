@@ -55,7 +55,7 @@ func TimingSafeMatch(a, b string) bool {
 
 // ValidateAPIKey looks up an shs_ API key in control.db (control-mode only).
 // It checks the cache first; on a miss it queries control.db, stamps
-// last_used_at, reads scope + permitted database IDs, and populates the cache.
+// last_used_at, and populates the cache.
 // Returns a populated APIKeyValue and true on success, nil and false otherwise.
 func ValidateAPIKey(ctx context.Context, c cache.Client, dataPath, keyValue string) (*cache.APIKeyValue, bool) {
 	sum := sha256.Sum256([]byte(keyValue))
@@ -77,9 +77,13 @@ func ValidateAPIKey(ctx context.Context, c cache.Client, dataPath, keyValue stri
 	}
 	defer cdb.Close()
 
+	// Join users to ensure the account is still active (plan not expired/revoked).
 	var keyID, userID, scope string
-	if err := cdb.QueryRow(
-		"SELECT id, user_id, scope FROM api_keys WHERE key_hash = ? AND status = 'active'",
+	if err := cdb.QueryRow(`
+		SELECT k.id, k.user_id, k.scope
+		FROM api_keys k
+		JOIN users u ON u.id = k.user_id
+		WHERE k.key_hash = ? AND k.status = 'active' AND u.nube_status = 'active'`,
 		keyHash).Scan(&keyID, &userID, &scope); err != nil {
 		return nil, false
 	}
@@ -90,27 +94,10 @@ func ValidateAPIKey(ctx context.Context, c cache.Client, dataPath, keyValue stri
 		_ = wdb.Close()
 	}
 
-	// Read permitted database IDs for scoped keys.
-	var dbIDs []string
-	if scope == "databases" {
-		rows, err := cdb.Query(
-			"SELECT database_id FROM api_key_databases WHERE api_key_id = ?", keyID)
-		if err == nil {
-			defer rows.Close()
-			for rows.Next() {
-				var did string
-				if rows.Scan(&did) == nil {
-					dbIDs = append(dbIDs, did)
-				}
-			}
-		}
-	}
-
 	kv := &cache.APIKeyValue{
-		UserID:      userID,
-		KeyID:       keyID,
-		Scope:       scope,
-		DatabaseIDs: dbIDs,
+		UserID: userID,
+		KeyID:  keyID,
+		Scope:  scope,
 	}
 	_ = c.SetAPIKey(ctx, keyHash, *kv, apiKeyTTL)
 	return kv, true
@@ -120,9 +107,10 @@ func ValidateAPIKey(ctx context.Context, c cache.Client, dataPath, keyValue stri
 //
 //  1. X-Sqlite-Hub-Admin: 1 (stamped by AdminStamper) → allowed
 //  2. DB inactive → 503
-//  3. shs_ API key: owner match + scope enforcement (account or scoped to this DB)
-//  4. Per-DB service_secret Bearer match → allowed
-//  5. Otherwise → 401 or 403
+//  3. shs_ API key: owner match + scope enforcement
+//     'all' or 'db:*' → any owned DB
+//     'db:<name>' → only the named DB
+//  4. Otherwise → 401
 //
 // Returns HTTP status 0 and "" when access is granted.
 func AuthorizeDB(r *http.Request, cfg *config.Config, c cache.Client, record *db.DBRecord) (int, string) {
@@ -140,32 +128,99 @@ func AuthorizeDB(r *http.Request, cfg *config.Config, c cache.Client, record *db
 		if !ok || kv.UserID != record.Owner {
 			return http.StatusUnauthorized, "Unauthorized"
 		}
-		// Scope enforcement: "account" keys can access any owned DB;
-		// "databases" keys are restricted to their explicit allow-list.
-		if kv.Scope == "databases" {
-			allowed := false
-			for _, did := range kv.DatabaseIDs {
-				if did == record.Name {
-					allowed = true
-					break
-				}
+		// Scope enforcement:
+		//   'all'       → access any owned DB
+		//   'db:*'      → access any owned DB
+		//   'db:<name>' → only the specific DB
+		//   'bucket:*' or 'bucket:<name>' → no DB access
+		switch {
+		case kv.Scope == "all" || kv.Scope == "db:*":
+			return 0, ""
+		case strings.HasPrefix(kv.Scope, "db:"):
+			scopedName := kv.Scope[3:]
+			if scopedName == record.Name {
+				return 0, ""
 			}
-			if !allowed {
-				return http.StatusForbidden, "This API key does not have access to this database"
-			}
+			return http.StatusForbidden, "This API key does not have access to this database"
+		default:
+			return http.StatusForbidden, "This API key does not have access to this database"
 		}
+	}
+
+	return http.StatusUnauthorized, "Unauthorized"
+}
+
+// LookupBucket looks up a bucket's owner by its template-internal name from
+// control.db. Returns userID and true on success.
+func LookupBucket(dataPath, name string) (string, bool) {
+	controlPath := filepath.Join(dataPath, "control.db")
+	if _, err := os.Stat(controlPath); os.IsNotExist(err) {
+		return "", false
+	}
+	cdb, err := sql.Open("sqlite3", controlPath+"?mode=ro")
+	if err != nil {
+		return "", false
+	}
+	defer cdb.Close()
+	var userID string
+	if err := cdb.QueryRow(
+		`SELECT user_id FROM buckets WHERE name = ? AND status = 'active'`, name,
+	).Scan(&userID); err != nil {
+		return "", false
+	}
+	return userID, true
+}
+
+// AuthorizeBucket enforces per-bucket access rules:
+//
+//  1. X-Sqlite-Hub-Admin: 1 (stamped by AdminStamper) → allowed
+//  2. shs_ API key: owner match + scope enforcement
+//     'all' or 'bucket:*' → any owned bucket
+//     'bucket:<name>' → only the named bucket (template-internal name)
+//  3. Otherwise → 401
+//
+// Returns HTTP status 0 and "" when access is granted.
+func AuthorizeBucket(r *http.Request, cfg *config.Config, c cache.Client, bucketUserID, bucketName string) (int, string) {
+	if r.Header.Get(AdminSessionHeader) == "1" {
 		return 0, ""
 	}
 
-	if record.ServiceSecret.Valid && record.ServiceSecret.String != "" {
-		if bearer != "" && TimingSafeMatch(bearer, record.ServiceSecret.String) {
-			return 0, ""
+	bearer := extractBearer(r)
+	if bearer != "" && strings.HasPrefix(bearer, "shs_") {
+		kv, ok := ValidateAPIKey(r.Context(), c, cfg.DataPath, bearer)
+		if !ok || kv.UserID != bucketUserID {
+			return http.StatusUnauthorized, "Unauthorized"
 		}
-		return http.StatusUnauthorized, "Unauthorized"
+		switch {
+		case kv.Scope == "all" || kv.Scope == "bucket:*":
+			return 0, ""
+		case strings.HasPrefix(kv.Scope, "bucket:"):
+			if kv.Scope[7:] == bucketName {
+				return 0, ""
+			}
+			return http.StatusForbidden, "This API key does not have access to this bucket"
+		default:
+			return http.StatusForbidden, "This API key does not have access to this bucket"
+		}
 	}
 
-	return http.StatusForbidden,
-		"Forbidden: this database has no service_secret — set a service_secret for API access"
+	return http.StatusUnauthorized, "Unauthorized"
+}
+
+// UpdateBucketSizeInControl writes the current total file size for a bucket
+// into control.db. Called asynchronously after file uploads and deletes.
+// bucketName must be the template-internal name stored in buckets.name.
+func UpdateBucketSizeInControl(dataPath, bucketName string, sizeBytes int64) {
+	controlPath := filepath.Join(dataPath, "control.db")
+	cdb, err := sql.Open("sqlite3", controlPath)
+	if err != nil {
+		return
+	}
+	defer cdb.Close()
+	_, _ = cdb.Exec(
+		"UPDATE buckets SET size_bytes = ?, updated_at = datetime('now') WHERE name = ?",
+		sizeBytes, bucketName,
+	)
 }
 
 func extractBearer(r *http.Request) string {

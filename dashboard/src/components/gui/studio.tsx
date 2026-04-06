@@ -23,6 +23,7 @@ interface StudioProps {
   onBack?: () => void;
   theme?: "dark" | "light";
   containerClassName?: string;
+  readOnly?: boolean;
 }
 
 export function Studio({
@@ -34,6 +35,7 @@ export function Studio({
   containerClassName,
   docDriver,
   agentDriver,
+  readOnly,
 }: Readonly<StudioProps>) {
   const extensionRef = useRef<StudioExtensionManager | undefined | null>(
     extensions
@@ -97,6 +99,7 @@ export function Studio({
       agentDriver,
       databaseDriver: proxyDriver,
       docDriver,
+      readOnly,
     };
   }, [
     name,
@@ -107,6 +110,7 @@ export function Studio({
     agentDriver,
     proxyDriver,
     docDriver,
+    readOnly,
   ]);
 
   return (

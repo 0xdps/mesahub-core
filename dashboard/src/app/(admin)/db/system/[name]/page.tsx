@@ -51,6 +51,7 @@ export default function SystemDbViewerPage({
           extensions={extensions}
           name={name}
           color="gray"
+          readOnly
         />
       </div>
     </div>

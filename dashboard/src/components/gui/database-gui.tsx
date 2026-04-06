@@ -33,21 +33,25 @@ export default function DatabaseGui() {
     setDefaultWidthPercentage((DEFAULT_WIDTH / window.innerWidth) * 100);
   }, []);
 
-  const { databaseDriver, docDriver, extensions, containerClassName } =
+  const { databaseDriver, docDriver, extensions, containerClassName, readOnly } =
     useStudioContext();
 
   const [selectedTabIndex, setSelectedTabIndex] = useState(0);
   const { currentSchemaName } = useSchema();
-  const [tabs, setTabs] = useState<WindowTabItemProps[]>(() => [
-    {
-      title: "Query",
-      identifier: "query",
-      key: "query",
-      component: <QueryWindow initialName="Query" />,
-      icon: Binoculars,
-      type: "query",
-    },
-  ]);
+  const [tabs, setTabs] = useState<WindowTabItemProps[]>(() =>
+    readOnly
+      ? []
+      : [
+          {
+            title: "Query",
+            identifier: "query",
+            key: "query",
+            component: <QueryWindow initialName="Query" />,
+            icon: Binoculars,
+            type: "query",
+          },
+        ]
+  );
 
   const openTabInternal = useCallback((tabOption: WindowTabItemProps) => {
     setTabs((prev) => {
