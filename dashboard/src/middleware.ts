@@ -9,7 +9,7 @@ const CORS_ALLOWED_ORIGINS = (process.env.CORS_ALLOWED_ORIGINS ?? "")
   .map((value) => value.trim())
   .filter(Boolean);
 
-// These routes enforce their own resource auth (service secret / scoped API key)
+// These routes enforce their own resource auth (scoped API key)
 const RESOURCE_SCOPED_PATTERN = /^\/api\/(?:db|buckets)(?:\/[^/]+(?:\/.*)?)?$/;
 
 // Public file shortlink pattern: /{dbName}/file/{fileId}

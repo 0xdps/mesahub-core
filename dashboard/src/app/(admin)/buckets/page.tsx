@@ -63,19 +63,33 @@ export default async function BucketsAdminPage() {
             across all users
           </p>
         </div>
-        <Link
-          href="/db/new"
-          className="text-sm bg-white text-black px-3 py-1.5 rounded font-medium hover:bg-neutral-200 transition-colors"
-        >
-          + New database
-        </Link>
+        <div className="flex items-center gap-2">
+          <Link
+            href="/buckets/new"
+            className="text-sm bg-white text-black px-3 py-1.5 rounded font-medium hover:bg-neutral-200 transition-colors"
+          >
+            + New bucket
+          </Link>
+          <Link
+            href="/db/new"
+            className="text-sm text-neutral-200 hover:text-white px-3 py-1.5 rounded border border-neutral-700 hover:border-neutral-500 transition-colors"
+          >
+            + New database
+          </Link>
+        </div>
       </div>
 
       {buckets.length === 0 ? (
         <div className="rounded-lg border border-neutral-800 p-8 text-center">
           <p className="text-sm text-neutral-400">
-            No buckets yet. Users create buckets from the control plane dashboard.
+            No buckets yet.
           </p>
+          <Link
+            href="/buckets/new"
+            className="inline-block mt-3 text-sm text-white underline"
+          >
+            Create a bucket
+          </Link>
         </div>
       ) : (
         <div className="rounded-lg border border-neutral-800 overflow-hidden">

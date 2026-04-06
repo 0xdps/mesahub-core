@@ -65,7 +65,7 @@ func main() {
 			if cfg.RedisURL != "" {
 				mode = cache.ModeRedis
 			} else {
-				mode = cache.ModeNone
+				mode = cache.ModeOff
 			}
 		}
 		log.Info().Str("mode", mode).Bool("available", cacheClient.Available()).Msg("cache ready")
@@ -229,7 +229,7 @@ func main() {
 		// These endpoints are used by the control plane (Next.js) to read/write
 		// user metadata. INSERT OR IGNORE makes this idempotent on restart.
 		if existing, _ := registry.GetDatabase("control"); existing == nil {
-			if _, err := registry.InsertDatabase("control", "_system", nil, nil); err != nil {
+			if _, err := registry.InsertDatabase("control", "_system", nil); err != nil {
 				log.Fatal().Err(err).Msg("control DB registry insert failed")
 			}
 			log.Info().Msg("registered 'control' database in registry")

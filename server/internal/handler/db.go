@@ -2,8 +2,6 @@
 package handler
 
 import (
-	"crypto/rand"
-	"encoding/hex"
 	"net/http"
 	"os"
 	"regexp"
@@ -50,10 +48,9 @@ func (h *DBHandler) ListDBs(w http.ResponseWriter, r *http.Request) {
 // CreateDB handles POST /api/db (admin only).
 func (h *DBHandler) CreateDB(w http.ResponseWriter, r *http.Request) {
 	var body struct {
-		Name           string `json:"name"`
-		Owner          string `json:"owner"`
-		Description    string `json:"description"`
-		GenerateSecret bool   `json:"generate_secret"`
+		Name        string `json:"name"`
+		Owner       string `json:"owner"`
+		Description string `json:"description"`
 	}
 	if !decodeJSON(w, r, &body) {
 		return
@@ -86,32 +83,20 @@ func (h *DBHandler) CreateDB(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	var secret *string
-	if body.GenerateSecret {
-		b := make([]byte, 32)
-		_, _ = rand.Read(b)
-		s := "sv_" + hex.EncodeToString(b)
-		secret = &s
-	}
-
 	var desc *string
 	if body.Description != "" {
 		d := body.Description
 		desc = &d
 	}
 
-	record, err := h.registry.InsertDatabase(body.Name, body.Owner, desc, secret)
+	record, err := h.registry.InsertDatabase(body.Name, body.Owner, desc)
 	if err != nil {
 		ErrorJSON(w, http.StatusInternalServerError, err.Error())
 		return
 	}
 	log.Info().Str("name", body.Name).Str("owner", body.Owner).Msg("[db] created database")
 
-	resp := h.withStats(record)
-	if secret != nil {
-		resp["service_secret"] = *secret
-	}
-	writeJSON(w, http.StatusCreated, resp)
+	writeJSON(w, http.StatusCreated, h.withStats(record))
 }
 
 // ── /api/db/:name ─────────────────────────────────────────────────────────────
@@ -124,10 +109,7 @@ func (h *DBHandler) GetDB(w http.ResponseWriter, r *http.Request) {
 		ErrorJSON(w, http.StatusNotFound, "Not found")
 		return
 	}
-	resp := h.withStats(record)
-	resp["has_service_secret"] = record.ServiceSecret.Valid && record.ServiceSecret.String != ""
-	delete(resp, "service_secret")
-	writeJSON(w, http.StatusOK, resp)
+	writeJSON(w, http.StatusOK, h.withStats(record))
 }
 
 // PatchDB handles PATCH /api/db/:name (admin only).
@@ -146,25 +128,6 @@ func (h *DBHandler) PatchDB(w http.ResponseWriter, r *http.Request) {
 	action, _ := body["action"].(string)
 
 	switch action {
-	case "generate_secret":
-		b := make([]byte, 32)
-		_, _ = rand.Read(b)
-		s := "sv_" + hex.EncodeToString(b)
-		if err := h.registry.UpdateServiceSecret(name, &s); err != nil {
-			ErrorJSON(w, http.StatusInternalServerError, err.Error())
-			return
-		}
-		log.Info().Str("name", name).Msg("[db] service secret generated")
-		writeJSON(w, http.StatusOK, map[string]string{"service_secret": s})
-
-	case "revoke_secret":
-		if err := h.registry.UpdateServiceSecret(name, nil); err != nil {
-			ErrorJSON(w, http.StatusInternalServerError, err.Error())
-			return
-		}
-		log.Info().Str("name", name).Msg("[db] service secret revoked")
-		writeJSON(w, http.StatusOK, map[string]bool{"success": true})
-
 	case "set_status":
 		status, _ := body["status"].(string)
 		if status != "active" && status != "inactive" {

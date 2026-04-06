@@ -1,13 +1,20 @@
 // Package cache provides pluggable cache backends for the template server.
 //
-// Four modes are supported, selected via the CACHE_MODE environment variable:
+// CACHE_MODE supports these canonical values:
 //
-//   - "none"      — NoopClient; all operations silently no-op. Sessions fall
+//   - "off"       — NoopClient; all operations silently no-op. Sessions fall
 //     back to signed JWTs. API keys hit SQLite on every request.
 //   - "redis"     — Redis-backed (requires REDIS_URL). Opaque session tokens
 //     stored server-side. API keys cached with a 5-minute TTL.
-//   - "in-memory" — Process-local map with TTL. Same behaviour as Redis but
+//   - "local"     — Process-local map with TTL. Same behaviour as Redis but
 //     data is lost on restart. No external dependency required.
+//
+// Legacy aliases remain accepted for backward compatibility:
+//   - none -> off
+//   - in-memory -> local
+//   - both (unchanged; layered local L1 + Redis L2)
+//
+// Layered mode:
 //   - "both"      — In-memory L1 + Redis L2. Reads hit memory first, fall
 //     through to Redis and repopulate L1. Writes go to both.
 //     Ideal for multi-instance deployments that want sub-ms
@@ -27,12 +34,17 @@ import (
 	"github.com/redis/go-redis/v9"
 )
 
-// Cache mode constants — match the CACHE_MODE environment variable values.
+// Cache mode constants — canonical CACHE_MODE values.
 const (
+	ModeOff   = "off"
+	ModeRedis = "redis"
+	ModeLocal = "local"
+
+	// Backward-compatible legacy aliases.
 	ModeNone   = "none"
-	ModeRedis  = "redis"
 	ModeMemory = "in-memory"
-	ModeBoth   = "both"
+
+	ModeBoth = "both"
 )
 
 // l1APIKeyTTL is the L1 repopulation TTL used when the layered client
@@ -431,18 +443,20 @@ func (l *layeredClient) IncrRateLimit(ctx context.Context, key string, ttl time.
 // New creates a Client from the mode string and optional redisURL.
 //
 // If mode is empty, it is derived automatically: "redis" when redisURL is
-// non-empty, "none" otherwise — preserving backward-compatible behaviour.
+// non-empty, "off" otherwise.
 func New(mode, redisURL string) (Client, error) {
+	mode = normalizeMode(mode)
+
 	if mode == "" {
 		if redisURL != "" {
 			mode = ModeRedis
 		} else {
-			mode = ModeNone
+			mode = ModeOff
 		}
 	}
 
 	switch mode {
-	case ModeNone:
+	case ModeOff:
 		return &noopClient{}, nil
 
 	case ModeRedis:
@@ -451,7 +465,7 @@ func New(mode, redisURL string) (Client, error) {
 		}
 		return NewRedis(redisURL)
 
-	case ModeMemory:
+	case ModeLocal:
 		return newMemory(), nil
 
 	case ModeBoth:
@@ -465,6 +479,17 @@ func New(mode, redisURL string) (Client, error) {
 		return &layeredClient{l1: newMemory(), l2: rdb.(*redisClient)}, nil
 
 	default:
-		return nil, fmt.Errorf("cache: unknown mode %q — valid values: none, redis, in-memory, both", mode)
+		return nil, fmt.Errorf("cache: unknown mode %q — valid values: off, local, redis (legacy: none, in-memory, both)", mode)
+	}
+}
+
+func normalizeMode(mode string) string {
+	switch mode {
+	case ModeNone:
+		return ModeOff
+	case ModeMemory:
+		return ModeLocal
+	default:
+		return mode
 	}
 }

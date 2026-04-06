@@ -132,7 +132,6 @@ Sign in at your Railway service URL using your `ADMIN_TOKEN`.
 1. Open the dashboard and sign in
 2. Click **New database**
 3. Give it a name (lowercase `a-z`, `0-9`, `-`, `_`) and an optional description
-4. Copy the generated **bearer token** — it is only shown once
 
 ### Via the API
 
@@ -142,7 +141,7 @@ Use the admin token as a Bearer header:
 curl -X POST https://your-service.railway.app/api/db \
   -H "Authorization: Bearer $ADMIN_TOKEN" \
   -H "Content-Type: application/json" \
-  -d '{"name": "my-app", "owner": "my-team", "generate_secret": true}'
+  -d '{"name": "my-app", "owner": "my-team"}'
 ```
 
 Response:
@@ -153,18 +152,15 @@ Response:
   "name": "my-app",
   "owner": "my-team",
   "status": "active",
-  "service_secret": "shs_abc123...",
   "created_at": "2026-04-03T10:00:00Z"
 }
 ```
-
-Save `service_secret` — it is the per-database bearer token and is not stored in plaintext after this response.
 
 ---
 
 ## Querying a database
 
-All query and exec endpoints use the per-database bearer token (`shs_...`), not the admin token.
+All query and exec endpoints accept either an admin bearer token or a scoped API key (`shs_...`).
 
 ### Read — POST /api/db/:name/query
 
@@ -301,6 +297,19 @@ CONTROL_DB_SECRET=<openssl rand -hex 32>
 
 Set the same `CONTROL_DB_SECRET` in the control plane's environment. On startup the template will auto-provision a database named `control` with that secret, which the control plane uses to store user accounts and API key metadata.
 
+For cache setup in control mode:
+
+```bash
+# Single instance (recommended to start)
+CACHE_MODE=local
+
+# Later, for multi-instance consistency
+# CACHE_MODE=redis
+# REDIS_URL=redis://<host>:6379/0
+```
+
+`CACHE_MODE=off` is also supported if you want to disable caching entirely.
+
 ---
 
 ## Security checklist before going live
@@ -308,5 +317,5 @@ Set the same `CONTROL_DB_SECRET` in the control plane's environment. On startup 
 - [ ] `ADMIN_TOKEN` is a strong random value (`openssl rand -hex 32`)
 - [ ] `SESSION_SECRET` is at least 32 characters, unique to this deployment
 - [ ] Volume is attached at `/data` — data survives deploys
-- [ ] Each application service has its own `service_secret` (not the admin token)
+- [ ] Each application service has its own scoped API key (`shs_...`), not the admin token
 - [ ] `FILE_URL_SIGNING_SECRET` and `FILE_TOKEN_SIGNING_SECRET` set separately from `ADMIN_TOKEN` in production

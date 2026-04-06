@@ -4,7 +4,7 @@
  * - goFetchAdmin  – for admin-only endpoints; always uses the ADMIN_TOKEN Bearer.
  * - goFetchDb     – for per-DB endpoints; uses ADMIN_TOKEN when the admin session
  *                   header is present, otherwise forwards the caller's Bearer token
- *                   (e.g. a per-DB service_secret from an external client).
+ *                   (e.g. a scoped shs_ API key from an external client).
  */
 
 const GO_API_URL = (process.env.GO_API_URL ?? "http://localhost:3000").replace(/\/$/, "");
@@ -27,7 +27,7 @@ export function goFetchAdmin(path: string, init?: RequestInit): Promise<Response
  * If the incoming request has already been verified as an admin session
  * (x-sqlite-hub-admin: 1 stamped by the Next.js middleware), use the admin
  * token. Otherwise forward the caller's own Authorization header so Go can
- * validate the per-DB service_secret.
+ * validate the scoped API key.
  */
 export function goFetchDb(
   path: string,

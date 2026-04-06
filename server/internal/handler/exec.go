@@ -223,7 +223,7 @@ func (h *ExecHandler) ExecByUUID(w http.ResponseWriter, r *http.Request) {
 	if err != nil || rec == nil {
 		// DB exists in control.db but not yet registered (created before auto-register).
 		// Register it on the fly so subsequent requests also succeed.
-		if _, regErr := h.registry.InsertDatabase(templateName, ownerID, nil, nil); regErr == nil {
+		if _, regErr := h.registry.InsertDatabase(templateName, ownerID, nil); regErr == nil {
 			rec, _ = h.registry.GetDatabase(templateName)
 		}
 	}

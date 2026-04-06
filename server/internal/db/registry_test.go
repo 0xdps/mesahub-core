@@ -26,7 +26,7 @@ func TestInsertAndGetDatabase(t *testing.T) {
 	reg := openTestRegistry(t)
 
 	desc := "A test db"
-	rec, err := reg.InsertDatabase("mydb", "alice", &desc, nil)
+	rec, err := reg.InsertDatabase("mydb", "alice", &desc)
 	if err != nil {
 		t.Fatalf("InsertDatabase: %v", err)
 	}
@@ -59,7 +59,7 @@ func TestListDatabases(t *testing.T) {
 	reg := openTestRegistry(t)
 
 	for _, name := range []string{"db1", "db2", "db3"} {
-		if _, err := reg.InsertDatabase(name, "bob", nil, nil); err != nil {
+		if _, err := reg.InsertDatabase(name, "bob", nil); err != nil {
 			t.Fatalf("InsertDatabase(%s): %v", name, err)
 		}
 	}
@@ -75,7 +75,7 @@ func TestListDatabases(t *testing.T) {
 
 func TestSetDatabaseStatus(t *testing.T) {
 	reg := openTestRegistry(t)
-	if _, err := reg.InsertDatabase("statusdb", "carol", nil, nil); err != nil {
+	if _, err := reg.InsertDatabase("statusdb", "carol", nil); err != nil {
 		t.Fatal(err)
 	}
 	if err := reg.SetDatabaseStatus("statusdb", "inactive"); err != nil {
@@ -87,41 +87,6 @@ func TestSetDatabaseStatus(t *testing.T) {
 	}
 	if rec.Status != "inactive" {
 		t.Errorf("Status = %q; want inactive", rec.Status)
-	}
-}
-
-// ── service secret ────────────────────────────────────────────────────────────
-
-func TestServiceSecret(t *testing.T) {
-	reg := openTestRegistry(t)
-	if _, err := reg.InsertDatabase("secdb", "dave", nil, nil); err != nil {
-		t.Fatal(err)
-	}
-
-	secret := "supersecret"
-	if err := reg.UpdateServiceSecret("secdb", &secret); err != nil {
-		t.Fatalf("UpdateServiceSecret: %v", err)
-	}
-	got, err := reg.GetDBByServiceSecret(secret)
-	if err != nil {
-		t.Fatalf("GetDBByServiceSecret: %v", err)
-	}
-	if got == nil {
-		t.Fatal("expected record, got nil")
-	}
-	if got.Name != "secdb" {
-		t.Errorf("Name = %q; want secdb", got.Name)
-	}
-}
-
-func TestGetDBByServiceSecretMismatch(t *testing.T) {
-	reg := openTestRegistry(t)
-	got, err := reg.GetDBByServiceSecret("doesnotexist")
-	if err != nil {
-		t.Fatal(err)
-	}
-	if got != nil {
-		t.Errorf("expected nil for missing secret, got %+v", got)
 	}
 }
 
@@ -144,7 +109,7 @@ func TestSoftDeleteAndRestore(t *testing.T) {
 	pool := db.NewPool(dir)
 	t.Cleanup(func() { pool.Close() })
 
-	if _, err := reg.InsertDatabase("softdb", "eve", nil, nil); err != nil {
+	if _, err := reg.InsertDatabase("softdb", "eve", nil); err != nil {
 		t.Fatal(err)
 	}
 
@@ -199,7 +164,7 @@ func TestHardDeleteDatabase(t *testing.T) {
 	}
 	t.Cleanup(func() { _ = reg.Close() })
 
-	if _, err := reg.InsertDatabase("harddb", "frank", nil, nil); err != nil {
+	if _, err := reg.InsertDatabase("harddb", "frank", nil); err != nil {
 		t.Fatal(err)
 	}
 

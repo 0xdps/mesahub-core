@@ -55,7 +55,7 @@ export default async function DashboardPage() {
         </div>
         <div className="flex items-center gap-2">
           <Link
-            href="/buckets"
+            href="/buckets/new"
             className="text-sm text-neutral-200 hover:text-white px-3 py-1.5 rounded border border-neutral-700 hover:border-neutral-500 transition-colors"
           >
             + New bucket
@@ -112,7 +112,7 @@ export default async function DashboardPage() {
                   </td>
                   <td className="px-4 py-3 text-neutral-500 text-xs">
                     {sysName === "registry"
-                      ? "Stores all database records, service secrets, and metadata"
+                      ? "Stores all database records and metadata"
                       : "Stores user accounts, API keys, and control-plane data"}
                   </td>
                   <td className="px-4 py-3 text-right">

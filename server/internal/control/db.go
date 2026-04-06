@@ -121,7 +121,7 @@ var migrations = []string{
 	`ALTER TABLE databases ADD COLUMN description   TEXT`,
 	`ALTER TABLE databases ADD COLUMN instance_id   TEXT REFERENCES instances(id)`,
 	`ALTER TABLE databases ADD COLUMN updated_at    TEXT`,
-	// Remove service_secret from databases — auth moves to api_keys
+	// Legacy database credential fields are no longer used; auth uses api_keys.
 	// (SQLite cannot DROP COLUMN in older versions; we simply stop reading/writing it)
 	// Copy legacy sqlite_hub_instance_id → instance_id for pre-migration rows
 	`UPDATE databases SET instance_id = sqlite_hub_instance_id WHERE instance_id IS NULL AND sqlite_hub_instance_id IS NOT NULL`,

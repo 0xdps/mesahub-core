@@ -29,6 +29,7 @@ ADMIN_TOKEN="${ADMIN_TOKEN:-dev-token-change-me-in-production}"
 SKIP_LOGIN="${SKIP_LOGIN:-false}"
 COOKIES_FILE="/tmp/sqlite-hub-cookies.txt"
 TEST_DB_NAME="test-db-$(date +%s)"
+API_BEARER="$ADMIN_TOKEN"
 
 # Test database
 TEST_ADMIN_EMAIL="test@example.com"
@@ -167,14 +168,10 @@ test_create_database() {
   local body=$(echo "$response" | sed '$d')
   
   assert_status "201" "$status_code" "Create database returns 201"
-  
-  # Extract service_secret from response
-  SERVICE_SECRET=$(echo "$body" | grep -o '"service_secret":"[^"]*"' | cut -d'"' -f4)
-  if [ -z "$SERVICE_SECRET" ]; then
-    log_error "Could not extract service_secret from response"
-    return 1
-  fi
-  log_success "Extracted service_secret: ${SERVICE_SECRET:0:8}..."
+
+  # DB endpoints are now authenticated via admin token or scoped API keys.
+  API_BEARER="$ADMIN_TOKEN"
+  assert_contains "$body" "\"name\":\"$TEST_DB_NAME\"" "Create database response contains name"
 }
 
 test_get_database_info() {
@@ -182,7 +179,7 @@ test_get_database_info() {
   
   local response
   response=$(curl -s -w "\n%{http_code}" -X GET "$API_URL/api/db/$TEST_DB_NAME" \
-    -H "Authorization: Bearer $SERVICE_SECRET")
+    -H "Authorization: Bearer $API_BEARER")
   
   local status_code=$(echo "$response" | tail -n1)
   
@@ -206,7 +203,7 @@ test_create_table() {
   local response
   response=$(curl -s -w "\n%{http_code}" -X POST "$API_URL/api/db/$TEST_DB_NAME/exec" \
     -H "Content-Type: application/json" \
-    -H "Authorization: Bearer $SERVICE_SECRET" \
+    -H "Authorization: Bearer $API_BEARER" \
     -d "{\"sql\":\"$sql\"}")
   
   local status_code=$(echo "$response" | tail -n1)
@@ -222,7 +219,7 @@ test_insert_records() {
   local response
   response=$(curl -s -w "\n%{http_code}" -X POST "$API_URL/api/db/$TEST_DB_NAME/exec" \
     -H "Content-Type: application/json" \
-    -H "Authorization: Bearer $SERVICE_SECRET" \
+    -H "Authorization: Bearer $API_BEARER" \
     -d "{\"sql\":\"$sql\", \"bindings\":[\"item-1\", 10.5]}")
   
   local status_code=$(echo "$response" | tail -n1)
@@ -240,7 +237,7 @@ test_select_records() {
   local response
   response=$(curl -s -w "\n%{http_code}" -X POST "$API_URL/api/db/$TEST_DB_NAME/exec" \
     -H "Content-Type: application/json" \
-    -H "Authorization: Bearer $SERVICE_SECRET" \
+    -H "Authorization: Bearer $API_BEARER" \
     -d "{\"sql\":\"$sql\"}")
   
   local status_code=$(echo "$response" | tail -n1)
@@ -266,7 +263,7 @@ test_concurrent_writes() {
     (
       curl -s -X POST "$API_URL/api/db/$TEST_DB_NAME/exec" \
         -H "Content-Type: application/json" \
-        -H "Authorization: Bearer $SERVICE_SECRET" \
+        -H "Authorization: Bearer $API_BEARER" \
         -d "{\"sql\":\"$sql\", \"bindings\":[\"concurrent-item-$i\", $((i + 20.0))]}" > /dev/null
     ) &
     pids+=($!)
@@ -290,7 +287,7 @@ test_concurrent_writes() {
   local response
   response=$(curl -s -X POST "$API_URL/api/db/$TEST_DB_NAME/exec" \
     -H "Content-Type: application/json" \
-    -H "Authorization: Bearer $SERVICE_SECRET" \
+    -H "Authorization: Bearer $API_BEARER" \
     -d "{\"sql\":\"SELECT COUNT(*) as count FROM items\"}")
   
   local count=$(echo "$response" | grep -o '"count":[0-9]*' | cut -d':' -f2)
@@ -315,7 +312,7 @@ test_upload_file() {
   
   local response
   response=$(curl -s -w "\n%{http_code}" -X POST "$API_URL/api/db/$TEST_DB_NAME/files" \
-    -H "Authorization: Bearer $SERVICE_SECRET" \
+    -H "Authorization: Bearer $API_BEARER" \
     -F "file=@$test_file" \
     -F "filename=test-document.txt")
   
@@ -342,7 +339,7 @@ test_list_files() {
   
   local response
   response=$(curl -s -w "\n%{http_code}" -X GET "$API_URL/api/db/$TEST_DB_NAME/files?limit=10&sort=uploaded_at&order=DESC" \
-    -H "Authorization: Bearer $SERVICE_SECRET")
+    -H "Authorization: Bearer $API_BEARER")
   
   local status_code=$(echo "$response" | tail -n1)
   local body=$(echo "$response" | sed '$d')
@@ -361,7 +358,7 @@ test_download_file() {
   
   local response
   response=$(curl -s -w "\n%{http_code}" -X GET "$API_URL/api/db/$TEST_DB_NAME/files/$FILE_ID" \
-    -H "Authorization: Bearer $SERVICE_SECRET")
+    -H "Authorization: Bearer $API_BEARER")
   
   local status_code=$(echo "$response" | tail -n1)
   
@@ -379,7 +376,7 @@ test_file_proxy_acceleration() {
   # Use -i to show headers
   local response
   response=$(curl -s -i -X GET "$API_URL/api/db/$TEST_DB_NAME/files/$FILE_ID" \
-    -H "Authorization: Bearer $SERVICE_SECRET")
+    -H "Authorization: Bearer $API_BEARER")
   
   if echo "$response" | grep -iq "x-sendfile:"; then
     log_success "X-Sendfile header detected (Caddy proxy acceleration enabled)"
@@ -398,7 +395,7 @@ test_file_metadata() {
   
   local response
   response=$(curl -s -w "\n%{http_code}" -X GET "$API_URL/api/db/$TEST_DB_NAME/files/$FILE_ID/meta" \
-    -H "Authorization: Bearer $SERVICE_SECRET")
+    -H "Authorization: Bearer $API_BEARER")
   
   local status_code=$(echo "$response" | tail -n1)
   local body=$(echo "$response" | sed '$d')
@@ -418,7 +415,7 @@ test_bulk_delete_files() {
   local response
   response=$(curl -s -w "\n%{http_code}" -X POST "$API_URL/api/db/$TEST_DB_NAME/files/bulk-delete" \
     -H "Content-Type: application/json" \
-    -H "Authorization: Bearer $SERVICE_SECRET" \
+    -H "Authorization: Bearer $API_BEARER" \
     -d "{\"file_ids\":[\"$FILE_ID\"]}")
   
   local status_code=$(echo "$response" | tail -n1)

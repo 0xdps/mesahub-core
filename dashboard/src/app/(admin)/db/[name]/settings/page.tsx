@@ -191,7 +191,6 @@ export default function DbSettingsPage({
           </div>
         </div>
 
-        {/* Service secret section */}
         {/* Danger zone */}
         <div className="border border-red-900/60 rounded-lg p-5 mt-4">
           <h2 className="text-sm font-medium text-red-400 mb-1">Danger zone</h2>

@@ -19,15 +19,14 @@ type Registry struct {
 
 // DBRecord mirrors the `databases` table row.
 type DBRecord struct {
-	ID            int64
-	Name          string
-	Owner         string
-	Description   sql.NullString
-	ServiceSecret sql.NullString
-	CreatedAt     string
-	Status        string
-	OriginalName  sql.NullString
-	DeletedAt     sql.NullString
+	ID           int64
+	Name         string
+	Owner        string
+	Description  sql.NullString
+	CreatedAt    string
+	Status       string
+	OriginalName sql.NullString
+	DeletedAt    sql.NullString
 }
 
 // AuditMetrics holds aggregated audit stats.
@@ -43,7 +42,6 @@ CREATE TABLE IF NOT EXISTS databases (
   name           TEXT UNIQUE NOT NULL,
   owner          TEXT NOT NULL,
   description    TEXT,
-  service_secret TEXT,
   created_at     DATETIME DEFAULT CURRENT_TIMESTAMP,
   status         TEXT NOT NULL DEFAULT 'active',
   original_name  TEXT,
@@ -122,7 +120,6 @@ func migrateRegistry(db *sql.DB) error {
 		col string
 		ddl string
 	}{
-		{"service_secret", "ALTER TABLE databases ADD COLUMN service_secret TEXT"},
 		{"original_name", "ALTER TABLE databases ADD COLUMN original_name TEXT"},
 		{"deleted_at", "ALTER TABLE databases ADD COLUMN deleted_at DATETIME"},
 	}
@@ -144,7 +141,7 @@ func (r *Registry) Close() error { return r.db.Close() }
 // ListDatabases returns all non-deleted databases ordered by created_at desc.
 func (r *Registry) ListDatabases() ([]DBRecord, error) {
 	rows, err := r.db.Query(
-		`SELECT id, name, owner, description, service_secret, created_at, status, original_name, deleted_at
+		`SELECT id, name, owner, description, created_at, status, original_name, deleted_at
 		 FROM databases WHERE status != 'deleted' ORDER BY created_at DESC`)
 	if err != nil {
 		return nil, err
@@ -156,7 +153,7 @@ func (r *Registry) ListDatabases() ([]DBRecord, error) {
 // GetDatabase returns the database record for name (any status).
 func (r *Registry) GetDatabase(name string) (*DBRecord, error) {
 	row := r.db.QueryRow(
-		`SELECT id, name, owner, description, service_secret, created_at, status, original_name, deleted_at
+		`SELECT id, name, owner, description, created_at, status, original_name, deleted_at
 		 FROM databases WHERE name = ?`, name)
 	rec, err := scanDBRecord(row)
 	if err == sql.ErrNoRows {
@@ -165,33 +162,15 @@ func (r *Registry) GetDatabase(name string) (*DBRecord, error) {
 	return rec, err
 }
 
-// GetDBByServiceSecret finds an active database by its service secret.
-func (r *Registry) GetDBByServiceSecret(secret string) (*DBRecord, error) {
-	row := r.db.QueryRow(
-		`SELECT id, name, owner, description, service_secret, created_at, status, original_name, deleted_at
-		 FROM databases WHERE service_secret = ? AND status = 'active'`, secret)
-	rec, err := scanDBRecord(row)
-	if err == sql.ErrNoRows {
-		return nil, nil
-	}
-	return rec, err
-}
-
 // InsertDatabase creates a new database record.
-func (r *Registry) InsertDatabase(name, owner string, description, serviceSecret *string) (*DBRecord, error) {
+func (r *Registry) InsertDatabase(name, owner string, description *string) (*DBRecord, error) {
 	_, err := r.db.Exec(
-		`INSERT INTO databases (name, owner, description, service_secret) VALUES (?, ?, ?, ?)`,
-		name, owner, strPtr(description), strPtr(serviceSecret))
+		`INSERT INTO databases (name, owner, description) VALUES (?, ?, ?)`,
+		name, owner, strPtr(description))
 	if err != nil {
 		return nil, err
 	}
 	return r.GetDatabase(name)
-}
-
-// UpdateServiceSecret sets (or clears) the service_secret for a database.
-func (r *Registry) UpdateServiceSecret(name string, secret *string) error {
-	_, err := r.db.Exec(`UPDATE databases SET service_secret = ? WHERE name = ?`, strPtr(secret), name)
-	return err
 }
 
 // SetDatabaseStatus updates the status field to 'active' or 'inactive'.
@@ -229,7 +208,7 @@ func (r *Registry) SoftDeleteDatabase(pool *Pool, name string) error {
 
 	_, err := r.db.Exec(
 		`UPDATE databases
-		 SET name = ?, original_name = ?, status = 'deleted', deleted_at = datetime('now'), service_secret = NULL
+		 SET name = ?, original_name = ?, status = 'deleted', deleted_at = datetime('now')
 		 WHERE name = ?`,
 		newName, name, name)
 	return err
@@ -238,7 +217,7 @@ func (r *Registry) SoftDeleteDatabase(pool *Pool, name string) error {
 // ListDeletedDatabases returns all soft-deleted databases.
 func (r *Registry) ListDeletedDatabases() ([]DBRecord, error) {
 	rows, err := r.db.Query(
-		`SELECT id, name, owner, description, service_secret, created_at, status, original_name, deleted_at
+		`SELECT id, name, owner, description, created_at, status, original_name, deleted_at
 		 FROM databases WHERE status = 'deleted' ORDER BY deleted_at DESC`)
 	if err != nil {
 		return nil, err
@@ -406,7 +385,7 @@ func strPtr(s *string) any {
 func scanDBRecord(row *sql.Row) (*DBRecord, error) {
 	var r DBRecord
 	err := row.Scan(
-		&r.ID, &r.Name, &r.Owner, &r.Description, &r.ServiceSecret,
+		&r.ID, &r.Name, &r.Owner, &r.Description,
 		&r.CreatedAt, &r.Status, &r.OriginalName, &r.DeletedAt)
 	if err != nil {
 		return nil, err
@@ -419,7 +398,7 @@ func scanDBRecords(rows *sql.Rows) ([]DBRecord, error) {
 	for rows.Next() {
 		var r DBRecord
 		if err := rows.Scan(
-			&r.ID, &r.Name, &r.Owner, &r.Description, &r.ServiceSecret,
+			&r.ID, &r.Name, &r.Owner, &r.Description,
 			&r.CreatedAt, &r.Status, &r.OriginalName, &r.DeletedAt); err != nil {
 			return nil, err
 		}

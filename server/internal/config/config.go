@@ -27,7 +27,7 @@ type Config struct {
 
 	// Redis — detected by presence; nil behaviour handled by cache.NoopClient
 	RedisURL  string
-	CacheMode string // none | redis | in-memory | both (derived from REDIS_URL if empty)
+	CacheMode string // off | local | redis (legacy aliases: none | in-memory | both)
 
 	// Control-mode extras (only validated when Mode == ModeControl)
 	NubeGatewayURL  string
@@ -88,28 +88,33 @@ func Load() (*Config, error) {
 	if cfg.Mode == ModeControl && cfg.ControlPlaneSecret == "" {
 		return nil, fmt.Errorf("CONTROL_PLANE_SECRET is required when SQLITE_HUB_MODE=control")
 	}
-	if cfg.Mode == ModeControl && cfg.RedisURL == "" {
-		return nil, fmt.Errorf("REDIS_URL is required when SQLITE_HUB_MODE=control (PKCE state needs Redis)")
-	}
 	if os.Getenv("FILE_TOKEN_SIGNING_SECRET") == "" {
 		return nil, fmt.Errorf("FILE_TOKEN_SIGNING_SECRET is required")
 	}
 
-	// Validate CACHE_MODE. An empty value is resolved at runtime by cache.New()
-	// (defaults to "redis" when REDIS_URL is set, "none" otherwise).
-	switch cfg.CacheMode {
-	case "", "none", "in-memory":
-		// no Redis needed
-	case "redis", "both":
-		if cfg.RedisURL == "" {
-			return nil, fmt.Errorf("REDIS_URL is required when CACHE_MODE=%s", cfg.CacheMode)
-		}
-	default:
-		return nil, fmt.Errorf("CACHE_MODE must be one of: none, redis, in-memory, both — got %q", cfg.CacheMode)
+	// In control mode we default to local cache unless explicitly set.
+	if cfg.Mode == ModeControl && cfg.CacheMode == "" {
+		cfg.CacheMode = "local"
 	}
-	// Control mode needs Redis for cross-instance PKCE state.
-	if cfg.Mode == ModeControl && cfg.CacheMode != "redis" && cfg.CacheMode != "both" && cfg.CacheMode != "" {
-		return nil, fmt.Errorf("CACHE_MODE must be 'redis' or 'both' when SQLITE_HUB_MODE=control (PKCE state requires Redis)")
+
+	// Validate and normalize CACHE_MODE.
+	// Supported values: off | local | redis.
+	// Legacy aliases remain accepted for backward compatibility:
+	//   none -> off, in-memory -> local.
+	// The legacy 'both' mode remains available.
+	switch cfg.CacheMode {
+	case "", "off", "local", "redis", "both":
+		// accepted as-is
+	case "none":
+		cfg.CacheMode = "off"
+	case "in-memory":
+		cfg.CacheMode = "local"
+	default:
+		return nil, fmt.Errorf("CACHE_MODE must be one of: off, local, redis (legacy: none, in-memory, both) — got %q", cfg.CacheMode)
+	}
+
+	if (cfg.CacheMode == "redis" || cfg.CacheMode == "both") && cfg.RedisURL == "" {
+		return nil, fmt.Errorf("REDIS_URL is required when CACHE_MODE=%s", cfg.CacheMode)
 	}
 
 	return cfg, nil
