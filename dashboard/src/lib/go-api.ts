@@ -1,0 +1,48 @@
+/**
+ * Proxy helper for calling the Go backend (internal, never exposed to browsers).
+ *
+ * - goFetchAdmin  – for admin-only endpoints; always uses the ADMIN_TOKEN Bearer.
+ * - goFetchDb     – for per-DB endpoints; uses ADMIN_TOKEN when the admin session
+ *                   header is present, otherwise forwards the caller's Bearer token
+ *                   (e.g. a per-DB service_secret from an external client).
+ */
+
+const GO_API_URL = (process.env.GO_API_URL ?? "http://localhost:3000").replace(/\/$/, "");
+const ADMIN_TOKEN = process.env.ADMIN_TOKEN ?? "";
+
+/** Call a Go API endpoint as the admin (ADMIN_TOKEN Bearer). */
+export function goFetchAdmin(path: string, init?: RequestInit): Promise<Response> {
+  return fetch(`${GO_API_URL}${path}`, {
+    ...init,
+    headers: {
+      "Content-Type": "application/json",
+      ...(init?.headers ?? {}),
+      Authorization: `Bearer ${ADMIN_TOKEN}`,
+    },
+  });
+}
+
+/**
+ * Call a Go per-DB endpoint.
+ * If the incoming request has already been verified as an admin session
+ * (x-sqlite-hub-admin: 1 stamped by the Next.js middleware), use the admin
+ * token. Otherwise forward the caller's own Authorization header so Go can
+ * validate the per-DB service_secret.
+ */
+export function goFetchDb(
+  path: string,
+  incomingReq: Request,
+  init?: RequestInit
+): Promise<Response> {
+  const isAdmin = incomingReq.headers.get("x-sqlite-hub-admin") === "1";
+  const authHeader = isAdmin
+    ? `Bearer ${ADMIN_TOKEN}`
+    : (incomingReq.headers.get("authorization") ?? "");
+
+  const headers: Record<string, string> = {
+    ...(init?.headers as Record<string, string> | undefined),
+  };
+  if (authHeader) headers["Authorization"] = authHeader;
+
+  return fetch(`${GO_API_URL}${path}`, { ...init, headers });
+}

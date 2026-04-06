@@ -39,18 +39,17 @@ services:
     volumes:
       # Persistent data directory for SQLite DBs and file storage
       - sqlite-hub-data:/data
-      # Dev mode: mount source code for hot reload
-      - ./src:/app/src:ro
-      - ./public:/app/public:ro
-      - ./package.json:/app/package.json:ro
-      - ./next.config.js:/app/next.config.js:ro
-      - ./tsconfig.json:/app/tsconfig.json:ro
-      - ./postcss.config.cjs:/app/postcss.config.cjs:ro
-      - ./postcss.config.mjs:/app/postcss.config.mjs:ro
-      - ./components.json:/app/components.json:ro
+      # Dev mode: mount dashboard source code for hot reload
+      - ./dashboard/src:/app/dashboard/src:ro
+      - ./dashboard/public:/app/dashboard/public:ro
+      - ./dashboard/package.json:/app/dashboard/package.json:ro
+      - ./dashboard/next.config.js:/app/dashboard/next.config.js:ro
+      - ./dashboard/tsconfig.json:/app/dashboard/tsconfig.json:ro
+      - ./dashboard/postcss.config.cjs:/app/dashboard/postcss.config.cjs:ro
+      - ./dashboard/components.json:/app/dashboard/components.json:ro
       # Persist node_modules and .next build cache
-      - node_modules:/app/node_modules
-      - nextjs-cache:/app/.next
+      - node_modules:/app/dashboard/node_modules
+      - nextjs-cache:/app/dashboard/.next
     restart: unless-stopped
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:80/api/health"]

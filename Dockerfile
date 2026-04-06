@@ -1,39 +1,24 @@
 # ─────────────────────────────────────────────────────────────────────────────
-# Stage 1: Build the Go service
-# CGO is required for go-sqlite3.
-# ─────────────────────────────────────────────────────────────────────────────
-FROM golang:1.24-alpine AS go-builder
-
-RUN apk add --no-cache gcc musl-dev
-
-WORKDIR /build
-COPY server/go.mod server/go.sum ./
-RUN go mod download
-
-COPY server/ ./
-RUN CGO_ENABLED=1 GOOS=linux go build -ldflags="-s -w" -o sqlite-hub-server ./cmd/server
-
-# ─────────────────────────────────────────────────────────────────────────────
-# Stage 2: Build the Vite admin UI
+# Stage 1: Build the Next.js admin UI (standalone output)
 # ─────────────────────────────────────────────────────────────────────────────
 FROM node:24-alpine AS ui-builder
 
 RUN apk add --no-cache python3 make g++
 
-WORKDIR /app
-COPY package.json pnpm-lock.yaml ./
+WORKDIR /app/dashboard
+COPY dashboard/package.json dashboard/pnpm-lock.yaml ./
 RUN corepack enable pnpm && pnpm install --frozen-lockfile
 
-COPY . .
+COPY dashboard/ .
 
-# Env vars baked into the JS bundle at build time by Vite
+# Env vars baked into the JS bundle at build time by Next.js
 ARG NEXT_PUBLIC_ENABLE_FILE_STORAGE=false
 ENV NEXT_PUBLIC_ENABLE_FILE_STORAGE=$NEXT_PUBLIC_ENABLE_FILE_STORAGE
 
 RUN pnpm build
 
 # ─────────────────────────────────────────────────────────────────────────────
-# Development stage — hot-reload for both Go (air) and Vite
+# Development stage — hot-reload via Next.js dev server
 # Must come before the production stage so that `docker build` (and Railway)
 # targets `production` by default (last stage wins).
 # ─────────────────────────────────────────────────────────────────────────────
@@ -42,27 +27,19 @@ FROM caddy:2-alpine AS development
 RUN apk add --no-cache \
     nodejs \
     npm \
-    go \
-    gcc \
-    musl-dev \
     supervisor \
     curl \
-    libgcc \
-    libc6-compat \
     python3 \
     make \
     g++
 
-# Install air for Go hot-reload
-RUN go install github.com/air-verse/air@latest
-
 WORKDIR /app
 RUN mkdir -p /data/files/blobs
 
-COPY package.json pnpm-lock.yaml ./
-RUN corepack enable pnpm && pnpm install
+COPY dashboard/package.json dashboard/pnpm-lock.yaml ./dashboard/
+RUN cd dashboard && corepack enable pnpm && pnpm install
 
-COPY . .
+COPY dashboard/ ./dashboard/
 COPY start.sh /app/start.sh
 RUN chmod +x /app/start.sh
 
@@ -77,24 +54,21 @@ CMD ["/app/start.sh"]
 # ─────────────────────────────────────────────────────────────────────────────
 FROM caddy:2-alpine AS production
 
-# Runtime deps: supervisord, curl for health checks, libc / libgcc for CGO binary.
+# Runtime deps: Node.js for Next.js standalone, supervisord, curl for health checks.
 RUN apk add --no-cache \
+    nodejs \
     supervisor \
-    curl \
-    libgcc \
-    libstdc++ \
-    libc6-compat
+    curl
 
 WORKDIR /app
 
 # Create data & blob directories
 RUN mkdir -p /data/files/blobs
 
-# ── Go binary ────────────────────────────────────────────────────────────────
-COPY --from=go-builder /build/sqlite-hub-server ./server/sqlite-hub-server
-
-# ── Vite static build ────────────────────────────────────────────────────────
-COPY --from=ui-builder /app/dist ./dist
+# ── Next.js standalone build ──────────────────────────────────────────────────
+COPY --from=ui-builder /app/dashboard/.next/standalone ./dashboard/.next/standalone
+COPY --from=ui-builder /app/dashboard/.next/static ./dashboard/.next/standalone/.next/static
+COPY --from=ui-builder /app/dashboard/public ./dashboard/.next/standalone/public
 
 # ── supervisord config ───────────────────────────────────────────────────────
 COPY supervisord.conf /etc/supervisor/conf.d/sqlite-hub.conf
