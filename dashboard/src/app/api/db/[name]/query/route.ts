@@ -5,14 +5,24 @@ interface Params {
   params: Promise<{ name: string }>;
 }
 
+export const runtime = "nodejs";
+
 export async function POST(req: Request, { params }: Params) {
   const { name } = await params;
-  const body = await req.json().catch(() => null);
+  const rawBody = await req.text();
   const res = await goFetchDb(
     `/api/db/${encodeURIComponent(name)}/query`,
     req,
-    { method: "POST", body: JSON.stringify(body), headers: { "Content-Type": "application/json" } }
+    {
+      method: "POST",
+      body: rawBody === "" ? "null" : rawBody,
+      headers: { "Content-Type": "application/json" },
+    }
   );
-  const data = await res.json();
-  return NextResponse.json(data, { status: res.status });
+  return new NextResponse(res.body, {
+    status: res.status,
+    headers: {
+      "Content-Type": res.headers.get("Content-Type") ?? "application/json",
+    },
+  });
 }

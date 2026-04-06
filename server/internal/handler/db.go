@@ -17,7 +17,7 @@ import (
 	"github.com/0xdps/sqlite-hub/server/internal/sysutil"
 )
 
-var nameRegex = regexp.MustCompile(`^[a-z0-9_-]+$`)
+var nameRegex = regexp.MustCompile(`^[A-Za-z0-9_-]+$`)
 
 // DBHandler holds dependencies for the /api/db route group.
 type DBHandler struct {
@@ -63,7 +63,7 @@ func (h *DBHandler) CreateDB(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if !nameRegex.MatchString(body.Name) {
-		ErrorJSON(w, http.StatusBadRequest, "name must match ^[a-z0-9_-]+$")
+		ErrorJSON(w, http.StatusBadRequest, "name must match ^[A-Za-z0-9_-]+$")
 		return
 	}
 

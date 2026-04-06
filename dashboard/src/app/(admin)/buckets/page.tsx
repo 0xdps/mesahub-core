@@ -63,6 +63,12 @@ export default async function BucketsAdminPage() {
             across all users
           </p>
         </div>
+        <Link
+          href="/db/new"
+          className="text-sm bg-white text-black px-3 py-1.5 rounded font-medium hover:bg-neutral-200 transition-colors"
+        >
+          + New database
+        </Link>
       </div>
 
       {buckets.length === 0 ? (
@@ -82,6 +88,7 @@ export default async function BucketsAdminPage() {
                 <th className="text-left px-4 py-3">Status</th>
                 <th className="text-right px-4 py-3">Size</th>
                 <th className="text-right px-4 py-3">Created</th>
+                <th className="text-right px-4 py-3">Actions</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-neutral-800">
@@ -119,6 +126,14 @@ export default async function BucketsAdminPage() {
                   </td>
                   <td className="px-4 py-3 text-right text-neutral-500 text-xs tabular-nums">
                     {new Date(bucket.created_at + "Z").toLocaleDateString()}
+                  </td>
+                  <td className="px-4 py-3 text-right">
+                    <Link
+                      href={`/buckets/${encodeURIComponent(bucket.name)}/files`}
+                      className="text-xs text-emerald-400 hover:text-emerald-300"
+                    >
+                      Files →
+                    </Link>
                   </td>
                 </tr>
               ))}

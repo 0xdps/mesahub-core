@@ -124,6 +124,18 @@ export default function createEditableCell<T = unknown>({
       setEditValue(toString(value));
     }, [value]);
 
+    // When entering edit mode via a keypress (enterEditModeWithChar), consume
+    // the pending char and replace the displayed value so the user's first
+    // keystroke appears in the input immediately.
+    useEffect(() => {
+      if (editMode) {
+        const pending = state.consumePendingEditChar();
+        if (pending !== null) {
+          setEditValue(pending);
+        }
+      }
+    }, [editMode, state]);
+
     const applyChange = useCallback(
       (v: DatabaseValue<string>, shouldExitEdit = true) => {
         if (onChange) onChange(toValue(v));

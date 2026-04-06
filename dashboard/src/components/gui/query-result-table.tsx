@@ -408,6 +408,15 @@ export default function ResultTable({
         }
       } else if (e.key === "Enter") {
         state.enterEditMode();
+      } else if (
+        e.key.length === 1 &&
+        !e.ctrlKey &&
+        !e.metaKey &&
+        !e.altKey
+      ) {
+        // Any printable character starts editing with that character as the
+        // seed value, clearing the previous DEFAULT / existing value.
+        state.enterEditModeWithChar(e.key);
       }
 
       e.preventDefault();

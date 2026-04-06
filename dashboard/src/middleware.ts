@@ -9,8 +9,8 @@ const CORS_ALLOWED_ORIGINS = (process.env.CORS_ALLOWED_ORIGINS ?? "")
   .map((value) => value.trim())
   .filter(Boolean);
 
-// These routes enforce their own per-DB auth (service secret / internal IP)
-const DB_SCOPED_PATTERN = /^\/api\/db(?:\/[^/]+(?:\/.*)?)?$/;
+// These routes enforce their own resource auth (service secret / scoped API key)
+const RESOURCE_SCOPED_PATTERN = /^\/api\/(?:db|buckets)(?:\/[^/]+(?:\/.*)?)?$/;
 
 // Public file shortlink pattern: /{dbName}/file/{fileId}
 const FILE_SHORTLINK_PATTERN = /^\/[^/]+\/file\/[^/]+$/;
@@ -91,7 +91,7 @@ export async function middleware(req: NextRequest) {
   // handlers know this is an authenticated admin browser request.
   // Skip the session crypto entirely when a Bearer token is present — the
   // route handler will validate it directly.
-  if (DB_SCOPED_PATTERN.test(rewrittenPathname)) {
+  if (RESOURCE_SCOPED_PATTERN.test(rewrittenPathname)) {
     if (!forwarded.has("authorization")) {
       const tempRes = NextResponse.next();
       const session = await getIronSession<SessionData>(req, tempRes, sessionOptions);

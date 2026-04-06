@@ -24,8 +24,8 @@ if [ "$NODE_ENV" = "development" ]; then
     PORT=$GO_PORT /app/server/sqlite-hub-server &
     GO_PID=$!
 
-    echo "Starting Next.js dev server on :$NEXTJS_PORT ..."
-    cd /app/dashboard && PORT=$NEXTJS_PORT pnpm next dev --port $NEXTJS_PORT --hostname 0.0.0.0 &
+    echo "Starting Next.js dev server on :$NEXTJS_PORT (webpack) ..."
+    cd /app/dashboard && PORT=$NEXTJS_PORT pnpm next dev --webpack --port $NEXTJS_PORT --hostname 0.0.0.0 &
     NEXTJS_PID=$!
 
     echo "Waiting for Go server ..."

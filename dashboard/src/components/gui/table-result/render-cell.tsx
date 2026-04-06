@@ -5,7 +5,6 @@ import { deserializeV8 } from "@/lib/v8-derialization";
 import { ColumnType } from "@outerbase/sdk-transform";
 import { useMemo } from "react";
 import BigNumberCell from "../table-cell/big-number-cell";
-import GenericCell from "../table-cell/generic-cell";
 import NumberCell from "../table-cell/number-cell";
 import TextCell from "../table-cell/text-cell";
 import { OptimizeTableCellRenderProps } from "../table-optimized";
@@ -194,6 +193,19 @@ export default function tableResultCellRenderer(
       );
 
     default:
-      return <GenericCell value={value as string} header={header} />;
+      return (
+        <TextCell
+          header={header}
+          state={state}
+          editor={detectTextEditorType(value as DatabaseValue<string>)}
+          editMode={editMode}
+          value={value as DatabaseValue<string>}
+          valueType={valueType}
+          focus={isFocus}
+          onChange={(newValue) => {
+            state.changeValue(y, x, newValue);
+          }}
+        />
+      );
   }
 }

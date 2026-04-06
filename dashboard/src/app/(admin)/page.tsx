@@ -56,9 +56,9 @@ export default async function DashboardPage() {
         <div className="flex items-center gap-2">
           <Link
             href="/buckets"
-            className="text-sm text-neutral-400 hover:text-white px-3 py-1.5 rounded border border-neutral-700 hover:border-neutral-600 transition-colors"
+            className="text-sm text-neutral-200 hover:text-white px-3 py-1.5 rounded border border-neutral-700 hover:border-neutral-500 transition-colors"
           >
-            Buckets
+            + New bucket
           </Link>
           <Link
             href="/db/new"
@@ -189,12 +189,6 @@ export default async function DashboardPage() {
                         className="text-xs text-neutral-400 hover:text-white"
                       >
                         Settings
-                      </Link>
-                      <Link
-                        href={`/db/${db.name}/files`}
-                        className="text-xs text-emerald-400 hover:text-emerald-300"
-                      >
-                        Files
                       </Link>
                       <Link
                         href={`/db/${db.name}`}

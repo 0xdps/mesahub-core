@@ -40,6 +40,7 @@ export default class OptimizeTableState<HeaderMetadata = unknown> {
 
   protected editMode = false;
   protected readOnlyMode = false;
+  protected pendingEditChar: string | null = null;
   protected container: HTMLDivElement | null = null;
 
   protected changeCallback: TableChangeEventCallback[] = [];
@@ -344,6 +345,18 @@ export default class OptimizeTableState<HeaderMetadata = unknown> {
 
     this.data.splice(index, 0, newRow);
     this.changeLogs[newRow.changeKey] = newRow;
+
+    if (this.headers.length > 0) {
+      const firstEditableColumn = this.headers.findIndex(
+        (header) => !header.setting.readonly
+      );
+      const targetX = firstEditableColumn >= 0 ? firstEditableColumn : 0;
+
+      this.selectCell(index, targetX);
+      this.scrollToCell("left", "top", { y: index, x: targetX });
+      return;
+    }
+
     this.broadcastChange();
   }
 
@@ -441,6 +454,9 @@ export default class OptimizeTableState<HeaderMetadata = unknown> {
 
   setFocus(y: number, x: number) {
     this.focus = [y, x];
+    if (this.container) {
+      this.container.focus();
+    }
     this.clearLastMove();
     this.broadcastChange();
   }
@@ -452,6 +468,25 @@ export default class OptimizeTableState<HeaderMetadata = unknown> {
   enterEditMode() {
     this.editMode = true;
     this.broadcastChange();
+  }
+
+  /**
+   * Enter edit mode and pre-seed the input with [char] (e.g. when user
+   * starts typing on a focused-but-not-editing cell).
+   */
+  enterEditModeWithChar(char: string) {
+    this.pendingEditChar = char;
+    this.enterEditMode();
+  }
+
+  /**
+   * Returns the pending initial char (if any) and clears it.
+   * Should be called once by the cell input on first mount.
+   */
+  consumePendingEditChar(): string | null {
+    const c = this.pendingEditChar;
+    this.pendingEditChar = null;
+    return c;
   }
 
   exitEditMode() {
