@@ -91,7 +91,7 @@ export default function SavedDocTab() {
     }
   }, [refresh, docDriver]);
 
-  let dialog: React.JSX.Element | null = null;
+  let dialog: JSX.Element | null = null;
 
   if (docToRemove) {
     dialog = (

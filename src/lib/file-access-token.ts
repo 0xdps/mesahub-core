@@ -5,10 +5,10 @@ const DEFAULT_TOKEN_TTL_SECONDS = 60 * 60 * 24 * 30; // 30 days
 const MAX_TOKEN_TTL_SECONDS = 60 * 60 * 24 * 365; // 1 year
 
 function getSigningSecret(): string {
-  const secret = process.env.FILE_TOKEN_SIGNING_SECRET || process.env.ADMIN_TOKEN;
+  const secret = process.env.FILE_TOKEN_SIGNING_SECRET;
 
   if (!secret) {
-    throw new Error("Missing FILE_TOKEN_SIGNING_SECRET (or ADMIN_TOKEN as fallback)");
+    throw new Error("Missing FILE_TOKEN_SIGNING_SECRET");
   }
 
   return secret;

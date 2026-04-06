@@ -15,12 +15,6 @@ const DB_SCOPED_PATTERN = /^\/api\/db\/[^/]+(?:\/.*)?$/;
 // Public file shortlink pattern: /{dbName}/file/{fileId}
 const FILE_SHORTLINK_PATTERN = /^\/[^/]+\/file\/[^/]+$/;
 
-// File-storage routes — API + admin UI page
-const FILE_API_PATTERN = /^\/api\/db\/[^/]+\/(?:files|tokens\/files)(?:\/.*)?$/;
-const ADMIN_FILES_PAGE_PATTERN = /^\/db\/[^/]+\/files(?:\/.*)?$/;
-const FILE_STORAGE_ENABLED =
-  (process.env.ENABLE_FILE_STORAGE ?? "false").toLowerCase() === "true";
-
 // Trusted internal header stamped by middleware after session verification.
 // Stripped from all incoming requests to prevent external forgery.
 export const ADMIN_SESSION_HEADER = "x-sqlite-hub-admin";
@@ -88,35 +82,8 @@ export async function middleware(req: NextRequest) {
     return applyCorsHeaders(req, continueResponse());
   }
 
-  // File storage feature gate — return early before session checks
-  if (!FILE_STORAGE_ENABLED) {
-    if (FILE_API_PATTERN.test(rewrittenPathname)) {
-      return applyCorsHeaders(
-        req,
-        NextResponse.json({ error: "File storage is disabled" }, { status: 503 })
-      );
-    }
-    if (ADMIN_FILES_PAGE_PATTERN.test(rewrittenPathname)) {
-      const homeUrl = new URL("/", req.url);
-      return NextResponse.redirect(homeUrl);
-    }
-  }
-
   // Public file shortlinks: allow without session, apply CORS
   if (FILE_SHORTLINK_PATTERN.test(rewrittenPathname)) {
-    return applyCorsHeaders(req, continueResponse());
-  }
-
-  // Server-to-server: ADMIN_TOKEN Bearer grants full admin access to API routes.
-  // The header was already stripped above so this cannot be forged externally.
-  const adminToken = process.env.ADMIN_TOKEN;
-  const authHeader = forwarded.get("authorization");
-  if (
-    adminToken &&
-    authHeader === `Bearer ${adminToken}` &&
-    rewrittenPathname.startsWith("/api/")
-  ) {
-    forwarded.set(ADMIN_SESSION_HEADER, "1");
     return applyCorsHeaders(req, continueResponse());
   }
 
@@ -137,11 +104,9 @@ export async function middleware(req: NextRequest) {
 
   // All other routes: require a valid browser session (session cookie only)
 
-  // Check the session before building the response so we can stamp the admin
-  // header when the user is authenticated. (continueResponse() captures the
-  // forwarded headers snapshot, so the stamp must happen first.)
-  const tempRes = NextResponse.next();
-  const session = await getIronSession<SessionData>(req, tempRes, sessionOptions);
+  // Browser: check session cookie
+  const res = continueResponse();
+  const session = await getIronSession<SessionData>(req, res, sessionOptions);
 
   if (!session.isLoggedIn) {
     if (rewrittenPathname.startsWith("/api/")) {
@@ -151,13 +116,6 @@ export async function middleware(req: NextRequest) {
     return NextResponse.redirect(loginUrl);
   }
 
-  // Authenticated browser session — stamp the header so API route handlers
-  // know this is a verified admin request.
-  forwarded.set(ADMIN_SESSION_HEADER, "1");
-  const res = continueResponse();
-  // Preserve any Set-Cookie iron-session wrote (session refresh / re-seal).
-  const sessionCookie = tempRes.headers.get("set-cookie");
-  if (sessionCookie) res.headers.set("set-cookie", sessionCookie);
   return applyCorsHeaders(req, res);
 }
 

@@ -4,13 +4,7 @@ import { getDatabase, setDatabaseStatus, softDeleteDatabase, updateServiceSecret
 import { randomBytes } from "crypto";
 import fs from "fs";
 import { NextResponse } from "next/server";
-
-const ADMIN_SESSION_HEADER = "x-sqlite-hub-admin";
-
-function requireAdminSession(req: Request): NextResponse | null {
-  if (req.headers.get(ADMIN_SESSION_HEADER) === "1") return null;
-  return NextResponse.json({ error: "Admin session required" }, { status: 401 });
-}
+import { execSync } from "child_process";
 
 interface Params {
   params: Promise<{ name: string }>;
@@ -35,9 +29,6 @@ export async function GET(_req: Request, { params }: Params) {
 }
 
 export async function PATCH(req: Request, { params }: Params) {
-  const authError = requireAdminSession(req);
-  if (authError) return authError;
-
   const { name } = await params;
   const record = getDatabase(name);
   if (!record) {
@@ -80,13 +71,26 @@ export async function PATCH(req: Request, { params }: Params) {
         return NextResponse.json({ error: "Database file not found" }, { status: 404 });
       }
 
-      // Delete the database file - SQLite will recreate it on next access
-      fs.unlinkSync(filePath);
+      // First, get list of all tables
+      const tablesOutput = execSync(`sqlite3 "${filePath}" "SELECT name FROM sqlite_master WHERE type='table' AND name NOT LIKE 'sqlite_%';"`, {
+        encoding: "utf-8",
+        stdio: "pipe",
+      });
+      
+      const tables = tablesOutput.trim().split("\n").filter(t => t.length > 0);
+      
+      if (tables.length > 0) {
+        // Drop each table
+        const dropStatements = tables.map(table => `DROP TABLE IF EXISTS "${table}";`).join(" ");
+        execSync(`sqlite3 "${filePath}" "${dropStatements}"`, {
+          stdio: "pipe",
+        });
+      }
 
-      logger.info(`[db] Database "${name}" reset — file deleted and will be recreated`);
+      logger.info(`[db] Database "${name}" reset — all ${tables.length} table(s) dropped`);
       return NextResponse.json({ success: true });
     } catch (error) {
-      logger.error(`[db] reset_db "${name}" failed: ${error}`);
+      logger.error(`[db] reset_db "${name}" failed:`, error);
       return NextResponse.json(
         { error: "Failed to reset database" },
         { status: 500 }
@@ -98,10 +102,7 @@ export async function PATCH(req: Request, { params }: Params) {
   return NextResponse.json({ error: "Invalid action" }, { status: 400 });
 }
 
-export async function DELETE(req: Request, { params }: Params) {
-  const authError = requireAdminSession(req);
-  if (authError) return authError;
-
+export async function DELETE(_req: Request, { params }: Params) {
   const { name } = await params;
   const record = getDatabase(name);
   if (!record) {

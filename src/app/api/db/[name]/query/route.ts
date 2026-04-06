@@ -38,11 +38,7 @@ export async function POST(req: Request, { params }: Params) {
     return NextResponse.json({ error: "sql is required" }, { status: 400 });
   }
 
-  const { sql, bindings = [] } = body as { sql: string; bindings?: unknown[] };
-
-  if (!Array.isArray(bindings)) {
-    return NextResponse.json({ error: "bindings must be an array" }, { status: 400 });
-  }
+  const { sql } = body as { sql: string };
 
   if (BLOCKED_PATTERN.test(sql)) {
     logger.warn(`[query] "${name}" — write attempt blocked | sql_fp=${sqlFingerprint(sql)} len=${sql.length}`);
@@ -66,7 +62,7 @@ export async function POST(req: Request, { params }: Params) {
       type: undefined,
     }));
 
-    const rows = (stmt.all(...bindings) as Record<string, unknown>[]).map((row) => {
+    const rows = (stmt.all() as Record<string, unknown>[]).map((row) => {
       const out: Record<string, unknown> = {};
       for (const h of headers) out[h.name] = row[h.name];
       return out;

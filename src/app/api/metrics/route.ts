@@ -4,12 +4,7 @@ import { getDbPath, getFileSizeBytes, getVolumeSummary } from "@/lib/fs";
 import { getAuditMetrics, listDatabases } from "@/lib/registry";
 import { NextResponse } from "next/server";
 
-const ADMIN_SESSION_HEADER = "x-sqlite-hub-admin";
-
-export async function GET(req: Request) {
-  if (req.headers.get(ADMIN_SESSION_HEADER) !== "1") {
-    return NextResponse.json({ error: "Admin session required" }, { status: 401 });
-  }
+export async function GET() {
   const dbs = listDatabases().filter((d) => d.status === "active");
   const sizes = dbs.map((d) => ({ name: d.name, size_bytes: getFileSizeBytes(getDbPath(d.name)) }));
   const largest = sizes.reduce((a, b) => (b.size_bytes > a.size_bytes ? b : a), { name: "", size_bytes: 0 });

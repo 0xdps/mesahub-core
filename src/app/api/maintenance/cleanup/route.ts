@@ -4,12 +4,7 @@ import { NextResponse } from "next/server";
 
 export const runtime = "nodejs";
 
-const ADMIN_SESSION_HEADER = "x-sqlite-hub-admin";
-
 export async function POST(req: Request) {
-  if (req.headers.get(ADMIN_SESSION_HEADER) !== "1") {
-    return NextResponse.json({ error: "Admin session required" }, { status: 401 });
-  }
   const body = await req.json().catch(() => ({}));
   const fileLimitRaw = body?.file_limit;
   const fileLimit = Number.isFinite(fileLimitRaw)

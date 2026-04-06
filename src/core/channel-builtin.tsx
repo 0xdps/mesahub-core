@@ -4,7 +4,7 @@ import { CommunicationChannel } from "./channel";
 export interface StudioContextMenuItem {
   type?: "check";
   checked?: boolean;
-  title?: string | React.JSX.Element;
+  title?: string | JSX.Element;
   shortcut?: string;
   separator?: boolean;
   disabled?: boolean;

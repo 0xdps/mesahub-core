@@ -2,17 +2,11 @@ import { logger } from "@/lib/logger";
 import { getDatabase, hardDeleteDatabase, restoreDatabase } from "@/lib/registry";
 import { NextResponse } from "next/server";
 
-const ADMIN_SESSION_HEADER = "x-sqlite-hub-admin";
-
 interface Params {
   params: Promise<{ name: string }>;
 }
 
 export async function POST(req: Request, { params }: Params) {
-  if (req.headers.get(ADMIN_SESSION_HEADER) !== "1") {
-    return NextResponse.json({ error: "Admin session required" }, { status: 401 });
-  }
-
   const { name } = await params;
 
   const record = getDatabase(name);

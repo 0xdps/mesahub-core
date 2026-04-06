@@ -129,7 +129,7 @@ export function BoardCanvas({ value, onChange }: BoardProps) {
     [onChange, value.layout]
   );
 
-  const mapItem: React.JSX.Element[] = value.layout.map((_, i) => {
+  const mapItem: JSX.Element[] = value.layout.map((_, i) => {
     return (
       <div
         key={_.i}
