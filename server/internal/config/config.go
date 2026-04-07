@@ -30,13 +30,7 @@ type Config struct {
 	CacheMode string // off | local | redis (legacy aliases: none | in-memory | both)
 
 	// Control-mode extras (only validated when Mode == ModeControl)
-	NubeGatewayURL  string
-	NubeAppID       string
-	NubeAppSecret   string
-	ControlDBSecret string
-	AdminInitSecret string
-	ControlOrigin   string // public URL of the control FE (e.g. https://app.mesahub.app)
-	CORSOrigins     string
+	CORSOrigins string
 
 	// Operational limits
 	MaxVolumeUsagePct       int
@@ -59,12 +53,6 @@ func Load() (*Config, error) {
 		ControlPlaneSecret:      os.Getenv("CONTROL_PLANE_SECRET"),
 		RedisURL:                os.Getenv("REDIS_URL"),
 		CacheMode:               os.Getenv("CACHE_MODE"),
-		NubeGatewayURL:          os.Getenv("NUBE_GATEWAY_URL"),
-		NubeAppID:               os.Getenv("NUBE_APP_ID"),
-		NubeAppSecret:           os.Getenv("NUBE_APP_SECRET"),
-		ControlDBSecret:         os.Getenv("CONTROL_DB_SECRET"),
-		AdminInitSecret:         os.Getenv("ADMIN_INIT_SECRET"),
-		ControlOrigin:           os.Getenv("CONTROL_ORIGIN"),
 		CORSOrigins:             strEnv("CORS_ALLOWED_ORIGINS", ""),
 		MaxVolumeUsagePct:       intEnv("MAX_VOLUME_USAGE_PERCENT", 85),
 		MaxSQLLength:            intEnv("MAX_SQL_LENGTH", 100_000),
@@ -126,10 +114,6 @@ func strEnv(key, fallback string) string {
 	}
 	return fallback
 }
-
-// PublicURL returns the public URL of the control FE (CONTROL_ORIGIN).
-// Falls back to an empty string when not set.
-func (c *Config) PublicURL() string { return c.ControlOrigin }
 
 func intEnv(key string, fallback int) int {
 	v := os.Getenv(key)
