@@ -2,10 +2,9 @@ import { logger } from "@/lib/logger";
 import { SessionData, sessionOptions } from "@/lib/session";
 import { timingSafeEqual } from "crypto";
 import { getIronSession } from "iron-session";
-import { cookies } from "next/headers";
-import { NextResponse } from "next/server";
+import { NextRequest, NextResponse } from "next/server";
 
-export async function POST(req: Request) {
+export async function POST(req: NextRequest) {
   const body = await req.json().catch(() => null);
   if (!body || typeof body.token !== "string") {
     return NextResponse.json({ error: "token is required" }, { status: 400 });
@@ -29,9 +28,11 @@ export async function POST(req: Request) {
     return NextResponse.json({ error: "Invalid token" }, { status: 401 });
   }
 
-  const cookieStore = await cookies();
+  // Use req/res pattern so iron-session writes Set-Cookie directly onto the
+  // response headers, rather than relying on cookies() which can silently
+  // fail to propagate onto an already-constructed NextResponse.
   const res = NextResponse.json({ success: true });
-  const session = await getIronSession<SessionData>(cookieStore, sessionOptions);
+  const session = await getIronSession<SessionData>(req, res, sessionOptions);
   session.isLoggedIn = true;
   await session.save();
   logger.info("[auth] Admin login successful");

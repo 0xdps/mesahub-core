@@ -1,10 +1,8 @@
 "use client";
 
-import { useRouter } from "next/navigation";
 import { useState } from "react";
 
 export default function LoginPage() {
-  const router = useRouter();
   const [token, setToken] = useState("");
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(false);
@@ -22,10 +20,13 @@ export default function LoginPage() {
       });
 
       if (res.ok) {
-        router.push("/");
-        router.refresh();
+        // Hard redirect: ensures the session cookie is committed and the
+        // middleware runs clean. push()+refresh() together cause two concurrent
+        // RSC requests that fight each other, producing hangs.
+        window.location.replace("/");
+        return;
       } else {
-        const data = await res.json();
+        const data = await res.json().catch(() => ({}));
         setError(data.error ?? "Invalid token");
       }
     } catch {

@@ -1,10 +1,19 @@
 "use client";
 
-import { Studio } from "@/components/gui/studio";
-import { StudioExtensionManager } from "@/core/extension-manager";
-import { createSQLiteExtensions } from "@/core/standard-extension";
-import SystemDbDriver from "@/drivers/database/system-filedb";
-import { use, useMemo } from "react";
+import dynamic from "next/dynamic";
+import { use } from "react";
+
+const DbViewer = dynamic(
+  () => import("@/app/(admin)/db/[name]/_viewer"),
+  {
+    ssr: false,
+    loading: () => (
+      <div className="flex-1 flex items-center justify-center">
+        <span className="text-xs text-zinc-500">Loading editor…</span>
+      </div>
+    ),
+  }
+);
 
 export default function SystemDbViewerPage({
   params,
@@ -13,16 +22,8 @@ export default function SystemDbViewerPage({
 }) {
   const { name = "" } = use(params);
 
-  const driver = useMemo(() => new SystemDbDriver(name), [name]);
-
-  const extensions = useMemo(
-    () => new StudioExtensionManager(createSQLiteExtensions()),
-    []
-  );
-
   return (
     <div className="h-full flex-1 relative flex flex-col">
-      {/* Read-only notice */}
       <div className="flex items-center gap-3 bg-neutral-900 border-b border-neutral-700 px-4 py-2 text-xs text-neutral-400 shrink-0">
         <svg
           width="12"
@@ -46,14 +47,9 @@ export default function SystemDbViewerPage({
         </span>
       </div>
       <div className="flex-1 min-h-0">
-        <Studio
-          driver={driver}
-          extensions={extensions}
-          name={name}
-          color="gray"
-          readOnly
-        />
+        <DbViewer name={name} system readOnly />
       </div>
     </div>
   );
 }
+

@@ -30,10 +30,15 @@ interface FileRow {
   id: string;
   filename: string;
   folder_path: string;
-  content_type: string | null;
+  content_type: unknown;
   size_bytes: number;
   uploaded_at: string;
   expires_at: string | null;
+}
+
+function safeContentType(ct: unknown): string | null {
+  if (!ct || typeof ct !== "string") return null;
+  return ct;
 }
 
 interface FileListResponse {
@@ -58,18 +63,19 @@ interface MetadataModalState {
   folderLatestFile?: { filename: string; date: string };
 }
 
-function getFileIcon(contentType: string | null, className: string = "w-4 h-4") {
-  if (!contentType) return <File className={className} />;
+function getFileIcon(contentType: unknown, className: string = "w-4 h-4") {
+  if (!contentType || typeof contentType !== "string") return <File className={className} />;
+  const ct = contentType.toLowerCase();
 
-  if (contentType.includes("json")) return <FileJson className={className} />;
-  if (contentType.includes("text")) return <FileText className={className} />;
-  if (contentType.includes("code") || contentType.includes("javascript") || contentType.includes("typescript") || contentType.includes("python") || contentType.includes("java")) {
+  if (ct.includes("json")) return <FileJson className={className} />;
+  if (ct.includes("text")) return <FileText className={className} />;
+  if (ct.includes("code") || ct.includes("javascript") || ct.includes("typescript") || ct.includes("python") || ct.includes("java")) {
     return <FileCode className={className} />;
   }
-  if (contentType.includes("image")) return <FileImage className={className} />;
-  if (contentType.includes("video")) return <FileVideo className={className} />;
-  if (contentType.includes("audio")) return <FileAudio className={className} />;
-  if (contentType.includes("zip") || contentType.includes("rar") || contentType.includes("tar") || contentType.includes("gzip")) {
+  if (ct.includes("image")) return <FileImage className={className} />;
+  if (ct.includes("video")) return <FileVideo className={className} />;
+  if (ct.includes("audio")) return <FileAudio className={className} />;
+  if (ct.includes("zip") || ct.includes("rar") || ct.includes("tar") || ct.includes("gzip")) {
     return <FileArchive className={className} />;
   }
 
@@ -594,7 +600,7 @@ export default function BucketFilesPage({
                       {getFileIcon(row.content_type, "w-4 h-4 text-neutral-400")}
                       {row.filename}
                     </td>
-                    <td className="px-4 py-3 text-neutral-400">{row.content_type || "File"}</td>
+                    <td className="px-4 py-3 text-neutral-400">{safeContentType(row.content_type) ?? "File"}</td>
                     <td className="px-4 py-3 text-neutral-400">{formatBytes(row.size_bytes)}</td>
                     <td className="px-4 py-3 text-neutral-400">{new Date(row.uploaded_at).toLocaleString()}</td>
                     <td className="px-4 py-3">
@@ -707,7 +713,7 @@ export default function BucketFilesPage({
                   <div>
                     <p className="text-xs text-neutral-500 uppercase tracking-wide">Type</p>
                     <p className="font-mono text-sm text-white">
-                      {metadataModal.item?.file?.content_type || "Unknown"}
+                      {safeContentType(metadataModal.item?.file?.content_type) ?? "Unknown"}
                     </p>
                   </div>
                 </div>
