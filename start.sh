@@ -144,9 +144,7 @@ EOF
         cat >> /tmp/Caddyfile <<EOF
 
     # --- ${API_HOSTNAME} -> Go API server ---
-    # All data-plane traffic goes directly to the Go server.
-    # Requests arrive without the /api prefix (e.g. /query/{ref}), so we
-    # prepend /api before forwarding so Go routes still match.
+    # All callers (SDK, control plane) omit the /api prefix — prepend it here.
     @api_host host ${API_HOSTNAME}
     handle @api_host {
         rewrite * /api{uri}
