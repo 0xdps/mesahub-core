@@ -20,7 +20,9 @@ import (
 )
 
 var (
-	nonAlnumRe = regexp.MustCompile(`[^a-z0-9_-]`)
+	// nonAlnumRe matches chars not kept by sanitizeInternalName in template-names.ts:
+	// /[^A-Za-z0-9_-]/g — must include uppercase so the leading "D-" prefix is preserved.
+	nonAlnumRe = regexp.MustCompile(`[^A-Za-z0-9_-]`)
 	// uuidRE matches a standard hyphenated UUID (case-insensitive).
 	uuidRE = regexp.MustCompile(`(?i)^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$`)
 )
@@ -108,7 +110,6 @@ func ResolveDB(dataPath, ref string) (templateName, userID, resolvedUUID string,
 	uid, id, e := LookupByTemplateName(dataPath, ref)
 	return ref, uid, id, e
 }
-
 
 // routes: when enforcing the scope of a "databases"-scoped API key, it checks
 // did == uuid (the URL parameter) rather than did == record.Name (the template
