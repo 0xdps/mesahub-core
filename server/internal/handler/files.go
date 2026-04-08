@@ -526,31 +526,31 @@ func (h *FilesHandler) FileShortlink(w http.ResponseWriter, r *http.Request) {
 	_, _ = io.Copy(w, f)
 }
 
-// resolveUUID is a shared helper that looks up a UUID, fetches the registry
-// record, and authorizes the request. Returns the template name and record on
-// success; on failure it writes the error response and returns ("", nil).
-func (h *FilesHandler) resolveUUID(w http.ResponseWriter, r *http.Request, uuid string) (string, *db.DBRecord) {
-	templateName, _, err := auth.LookupByUUID(h.cfg.DataPath, uuid)
+// resolveRef is a shared helper that resolves a ref (UUID or template name),
+// fetches the registry record, and authorizes the request. Returns the template
+// name and record on success; on failure it writes the error response and returns ("", nil).
+func (h *FilesHandler) resolveRef(w http.ResponseWriter, r *http.Request, ref string) (string, *db.DBRecord) {
+	templName, _, resolvedUUID, err := auth.ResolveDB(h.cfg.DataPath, ref)
 	if err != nil {
 		ErrorJSON(w, http.StatusNotFound, "Database not found")
 		return "", nil
 	}
-	rec, err := h.registry.GetDatabase(templateName)
+	rec, err := h.registry.GetDatabase(templName)
 	if err != nil || rec == nil {
 		ErrorJSON(w, http.StatusNotFound, "Database not found")
 		return "", nil
 	}
-	if code, msg := auth.AuthorizeDBByUUID(r, h.cfg, h.cache, rec, uuid); code != 0 {
+	if code, msg := auth.AuthorizeDBByUUID(r, h.cfg, h.cache, rec, resolvedUUID); code != 0 {
 		ErrorJSON(w, code, msg)
 		return "", nil
 	}
-	return templateName, rec
+	return templName, rec
 }
 
-// ListByUUID handles GET /api/files/:uuid.
+// ListByUUID handles GET /api/files/:ref.
 func (h *FilesHandler) ListByUUID(w http.ResponseWriter, r *http.Request) {
-	uuid := chi.URLParam(r, "uuid")
-	templateName, _ := h.resolveUUID(w, r, uuid)
+	ref := chi.URLParam(r, "ref")
+	templateName, _ := h.resolveRef(w, r, ref)
 	if templateName == "" {
 		return
 	}
@@ -577,7 +577,7 @@ func (h *FilesHandler) ListByUUID(w http.ResponseWriter, r *http.Request) {
 	// Build file records with UUID-based download URLs.
 	fileItems := make([]map[string]any, 0, len(result.Files))
 	for i := range result.Files {
-		fileItems = append(fileItems, fileRecordUUID(&result.Files[i], uuid))
+		fileItems = append(fileItems, fileRecordUUID(&result.Files[i], ref))
 	}
 	writeJSON(w, http.StatusOK, map[string]any{
 		"files":  fileItems,
@@ -587,10 +587,10 @@ func (h *FilesHandler) ListByUUID(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
-// UploadByUUID handles POST /api/files/:uuid.
+// UploadByUUID handles POST /api/files/:ref.
 func (h *FilesHandler) UploadByUUID(w http.ResponseWriter, r *http.Request) {
-	uuid := chi.URLParam(r, "uuid")
-	templateName, _ := h.resolveUUID(w, r, uuid)
+	ref := chi.URLParam(r, "ref")
+	templateName, _ := h.resolveRef(w, r, ref)
 	if templateName == "" {
 		return
 	}
@@ -677,7 +677,7 @@ func (h *FilesHandler) UploadByUUID(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	log.Info().Str("db", templateName).Str("file", stored.Filename).Msg("[files] uploaded")
-	writeJSON(w, http.StatusCreated, fileRecordUUID(stored, uuid))
+	writeJSON(w, http.StatusCreated, fileRecordUUID(stored, ref))
 }
 
 // DownloadByUUID handles GET /api/files/:uuid/:id.
@@ -691,10 +691,10 @@ func (h *FilesHandler) HeadFileByUUID(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h *FilesHandler) serveFileByUUID(w http.ResponseWriter, r *http.Request, headOnly bool) {
-	uuid := chi.URLParam(r, "uuid")
+	ref := chi.URLParam(r, "ref")
 	id := chi.URLParam(r, "id")
 
-	templateName, _ := h.resolveUUID(w, r, uuid)
+	templateName, _ := h.resolveRef(w, r, ref)
 	if templateName == "" {
 		return
 	}
@@ -737,12 +737,12 @@ func (h *FilesHandler) serveFileByUUID(w http.ResponseWriter, r *http.Request, h
 	}
 }
 
-// DeleteFileByUUID handles DELETE /api/files/:uuid/:id.
+// DeleteFileByUUID handles DELETE /api/files/:ref/:id.
 func (h *FilesHandler) DeleteFileByUUID(w http.ResponseWriter, r *http.Request) {
-	uuid := chi.URLParam(r, "uuid")
+	ref := chi.URLParam(r, "ref")
 	id := chi.URLParam(r, "id")
 
-	templateName, _ := h.resolveUUID(w, r, uuid)
+	templateName, _ := h.resolveRef(w, r, ref)
 	if templateName == "" {
 		return
 	}
@@ -760,9 +760,9 @@ func (h *FilesHandler) DeleteFileByUUID(w http.ResponseWriter, r *http.Request) 
 }
 
 // fileRecordUUID converts a StoredFile into the wire-format map sent to clients
-// via the UUID-based file routes (url uses /api/files/{uuid}/{id}).
-func fileRecordUUID(f *files.StoredFile, uuid string) map[string]any {
-	url := fmt.Sprintf("/api/files/%s/%s", uuid, f.ID)
+// via the ref-based file routes (url uses /api/files/{ref}/{id}).
+func fileRecordUUID(f *files.StoredFile, ref string) map[string]any {
+	url := fmt.Sprintf("/api/files/%s/%s", ref, f.ID)
 	ct := ""
 	if f.ContentType.Valid {
 		ct = f.ContentType.String

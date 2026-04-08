@@ -143,10 +143,14 @@ EOF
     if [ "$CONTROL_ENABLED_VAL" = "true" ] && [ -n "$API_HOSTNAME" ] && [ -n "$ADMIN_HOSTNAME" ]; then
         cat >> /tmp/Caddyfile <<EOF
 
-    # --- ${API_HOSTNAME} -> Next.js API ---
+    # --- ${API_HOSTNAME} -> Go API server ---
+    # All data-plane traffic goes directly to the Go server.
+    # Requests arrive without the /api prefix (e.g. /query/{ref}), so we
+    # prepend /api before forwarding so Go routes still match.
     @api_host host ${API_HOSTNAME}
     handle @api_host {
-        reverse_proxy localhost:${NEXTJS_PORT}
+        rewrite * /api{uri}
+        reverse_proxy localhost:${GO_PORT}
     }
 
     # --- ${ADMIN_HOSTNAME} -> Next.js admin UI ---

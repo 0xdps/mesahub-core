@@ -196,13 +196,13 @@ func main() {
 	// All user management, plan enforcement, and provisioning is handled by
 	// the control plane (Next.js). The Go server only provides data access.
 	if cfg.Mode == config.ModeControl {
-		r.Post("/api/query/{uuid}", queryH.QueryByUUID)
-		r.Post("/api/exec/{uuid}", execH.ExecByUUID)
-		r.Get("/api/files/{uuid}", filesH.ListByUUID)
-		r.Post("/api/files/{uuid}", filesH.UploadByUUID)
-		r.Head("/api/files/{uuid}/{id}", filesH.HeadFileByUUID)
-		r.Get("/api/files/{uuid}/{id}", filesH.DownloadByUUID)
-		r.Delete("/api/files/{uuid}/{id}", filesH.DeleteFileByUUID)
+		r.Post("/api/query/{ref}", queryH.QueryByUUID)
+		r.Post("/api/exec/{ref}", execH.ExecByUUID)
+		r.Get("/api/files/{ref}", filesH.ListByUUID)
+		r.Post("/api/files/{ref}", filesH.UploadByUUID)
+		r.Head("/api/files/{ref}/{id}", filesH.HeadFileByUUID)
+		r.Get("/api/files/{ref}/{id}", filesH.DownloadByUUID)
+		r.Delete("/api/files/{ref}/{id}", filesH.DeleteFileByUUID)
 
 		// Bucket file routes — auth via shs_ API key scope (bucket:* or bucket:<name>).
 		// NOTE: presign/batch and bulk-delete must be registered before {id} routes.

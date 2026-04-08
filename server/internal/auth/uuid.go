@@ -19,17 +19,24 @@ import (
 	"github.com/0xdps/sqlite-hub/server/internal/db"
 )
 
-var nonAlnumRe = regexp.MustCompile(`[^a-z0-9_-]`)
+var (
+	nonAlnumRe = regexp.MustCompile(`[^a-z0-9_-]`)
+	// uuidRE matches a standard hyphenated UUID (case-insensitive).
+	uuidRE = regexp.MustCompile(`(?i)^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$`)
+)
 
 // ToTemplateName derives the template-internal database name from the control
-// plane userID and database name. Must match the formula used in the control
-// plane: u{userId[:8]}-{name} with all non-alnum chars replaced by '-'.
+// plane userID and database name. Matches buildTemplateDbName in template-names.ts:
+//
+//	D-{userId with USR0 stripped, lowercased}-{dbName lowercased}
+//
+// with any non-alnum/dash/underscore chars replaced by '-'.
+// Used as a fallback for rows that pre-date the template_name column.
 func ToTemplateName(userID, dbName string) string {
-	prefix := userID
-	if len(prefix) > 8 {
-		prefix = prefix[:8]
-	}
-	return nonAlnumRe.ReplaceAllString("u"+prefix+"-"+dbName, "-")
+	userPart := strings.ToLower(strings.TrimPrefix(strings.ToLower(userID), "usr0"))
+	resName := strings.ToLower(dbName)
+	raw := "D-" + userPart + "-" + resName
+	return nonAlnumRe.ReplaceAllString(raw, "-")
 }
 
 // LookupByUUID resolves a control-plane database UUID to its template-internal
@@ -47,17 +54,62 @@ func LookupByUUID(dataPath, uuid string) (templateName, userID string, err error
 	defer cdb.Close()
 
 	var uid, name string
+	var tname sql.NullString
 	if err := cdb.QueryRow(
-		"SELECT user_id, name FROM databases WHERE id = ? AND status = 'active'",
-		uuid).Scan(&uid, &name); err != nil {
+		"SELECT user_id, name, template_name FROM databases WHERE id = ? AND status = 'active'",
+		uuid).Scan(&uid, &name, &tname); err != nil {
 		return "", "", fmt.Errorf("database not found")
 	}
-	// name is already the template-internal name (e.g. u{prefix8}_{slug})
-	// set at CreateDatabase time – no further derivation needed.
-	return name, uid, nil
+	// Use explicit template_name when present (set at CreateDatabase time).
+	// Fall back to ToTemplateName derivation for rows created before the migration.
+	if tname.Valid && tname.String != "" {
+		return tname.String, uid, nil
+	}
+	return ToTemplateName(uid, name), uid, nil
 }
 
-// AuthorizeDBByUUID is identical to AuthorizeDB but designed for UUID-based
+// LookupByTemplateName resolves a template-internal database name (e.g.
+// D-a6fb1cmq9-mydb) to its owner user ID and control-plane UUID.
+// Returns an error if the database is not found or not active.
+func LookupByTemplateName(dataPath, templateName string) (userID, uuid string, err error) {
+	controlPath := filepath.Join(dataPath, "control.db")
+	if _, statErr := os.Stat(controlPath); os.IsNotExist(statErr) {
+		return "", "", fmt.Errorf("control.db not found")
+	}
+	cdb, err := sql.Open("sqlite3", controlPath+"?mode=ro")
+	if err != nil {
+		return "", "", err
+	}
+	defer cdb.Close()
+
+	var uid, id string
+	if err := cdb.QueryRow(
+		"SELECT user_id, id FROM databases WHERE template_name = ? AND status = 'active'",
+		templateName).Scan(&uid, &id); err != nil {
+		return "", "", fmt.Errorf("database not found")
+	}
+	return uid, id, nil
+}
+
+// ResolveDB resolves a database reference — either a control-plane UUID or a
+// template-internal name (e.g. D-a6fb1cmq9-mydb) — to the template name,
+// owner user ID, and the control-plane UUID needed for AuthorizeDBByUUID.
+//
+// Clients can now address databases two ways:
+//
+//	POST /query/aa15ab54-1bd4-4e0a-9abb-4c09361fc444   (UUID)
+//	POST /query/D-a6fb1cmq9-test-db                    (template name)
+func ResolveDB(dataPath, ref string) (templateName, userID, resolvedUUID string, err error) {
+	if uuidRE.MatchString(ref) {
+		tname, uid, e := LookupByUUID(dataPath, ref)
+		return tname, uid, ref, e
+	}
+	// Treat ref as a template-internal name.
+	uid, id, e := LookupByTemplateName(dataPath, ref)
+	return ref, uid, id, e
+}
+
+
 // routes: when enforcing the scope of a "databases"-scoped API key, it checks
 // did == uuid (the URL parameter) rather than did == record.Name (the template
 // name). This is correct because api_key_databases.database_id stores the

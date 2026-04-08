@@ -116,13 +116,13 @@ func (h *QueryHandler) Query(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
-// QueryByUUID handles POST /api/query/:uuid (control mode only).
-// It resolves the UUID to a template-internal database name via control.db
-// and then runs the same read-only query logic as Query.
+// QueryByUUID handles POST /api/query/:ref (control mode only).
+// ref can be either a control-plane UUID or a template-internal name
+// (e.g. D-a6fb1cmq9-mydb). Both are resolved via control.db.
 func (h *QueryHandler) QueryByUUID(w http.ResponseWriter, r *http.Request) {
-	uuid := chi.URLParam(r, "uuid")
+	ref := chi.URLParam(r, "ref")
 
-	templateName, ownerID, err := auth.LookupByUUID(h.cfg.DataPath, uuid)
+	templateName, ownerID, resolvedUUID, err := auth.ResolveDB(h.cfg.DataPath, ref)
 	if err != nil {
 		ErrorJSON(w, http.StatusNotFound, "Database not found")
 		return
@@ -140,7 +140,7 @@ func (h *QueryHandler) QueryByUUID(w http.ResponseWriter, r *http.Request) {
 		ErrorJSON(w, http.StatusNotFound, "Database not found")
 		return
 	}
-	if code, msg := auth.AuthorizeDBByUUID(r, h.cfg, h.cache, rec, uuid); code != 0 {
+	if code, msg := auth.AuthorizeDBByUUID(r, h.cfg, h.cache, rec, resolvedUUID); code != 0 {
 		ErrorJSON(w, code, msg)
 		return
 	}

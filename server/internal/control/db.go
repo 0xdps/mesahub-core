@@ -45,16 +45,17 @@ CREATE TABLE IF NOT EXISTS instances (
 );
 
 CREATE TABLE IF NOT EXISTS databases (
-  id           TEXT PRIMARY KEY,
-  user_id      TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
-  name         TEXT NOT NULL,          -- template-internal unique name
-  display_name TEXT NOT NULL,
-  description  TEXT,
-  instance_id  TEXT REFERENCES instances(id),
-  status       TEXT NOT NULL DEFAULT 'active',
-  size_bytes   INTEGER NOT NULL DEFAULT 0,
-  created_at   TEXT NOT NULL DEFAULT (datetime('now')),
-  updated_at   TEXT,
+  id            TEXT PRIMARY KEY,
+  user_id       TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  name          TEXT NOT NULL,          -- user-visible unique name (slug)
+  template_name TEXT,                   -- template-internal name (e.g. D-<userpart>-<slug>)
+  display_name  TEXT NOT NULL,
+  description   TEXT,
+  instance_id   TEXT REFERENCES instances(id),
+  status        TEXT NOT NULL DEFAULT 'active',
+  size_bytes    INTEGER NOT NULL DEFAULT 0,
+  created_at    TEXT NOT NULL DEFAULT (datetime('now')),
+  updated_at    TEXT,
   UNIQUE(user_id, name)
 );
 
@@ -140,6 +141,10 @@ var migrations = []string{
 	)`,
 	`CREATE INDEX IF NOT EXISTS idx_buckets_user_id ON buckets(user_id)`,
 	`ALTER TABLE usage ADD COLUMN bucket_bytes INTEGER NOT NULL DEFAULT 0`,
+	// Add template_name to databases: stores the template-internal name (e.g. D-<userpart>-<slug>).
+	// Rows inserted before this migration will have template_name = NULL; LookupByUUID
+	// falls back to derivation for those rows.
+	`ALTER TABLE databases ADD COLUMN template_name TEXT`,
 }
 
 // ── DB wrapper ────────────────────────────────────────────────────────────────
