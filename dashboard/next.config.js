@@ -1,5 +1,4 @@
 /* eslint-disable @typescript-eslint/no-var-requires */
-const withMDX = require("@next/mdx")();
 const pkg = require("./package.json");
 
 /** @type {import('next').NextConfig} */
@@ -19,4 +18,4 @@ const nextConfig = {
   },
 };
 
-module.exports = { ...withMDX(nextConfig), output: "standalone" };
+module.exports = { ...nextConfig, output: "standalone" };

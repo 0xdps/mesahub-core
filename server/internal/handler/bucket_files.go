@@ -39,24 +39,24 @@ func NewBucketFilesHandler(cfg *config.Config, storage *files.Storage, c cache.C
 	return &BucketFilesHandler{cfg: cfg, storage: storage, cache: c}
 }
 
-// lookupAndAuth resolves the bucket name from the URL, finds its owner in
-// control.db, and enforces API key auth. Returns the storage namespace and
-// true on success.
-func (h *BucketFilesHandler) lookupAndAuth(w http.ResponseWriter, r *http.Request) (name, ns string, ok bool) {
-	name = chi.URLParam(r, "name")
+// lookupAndAuth resolves the bucket reference (UUID or slug) from the URL,
+// finds its owner in control.db, and enforces API key auth.
+// Returns the resolved slug, storage namespace, and true on success.
+func (h *BucketFilesHandler) lookupAndAuth(w http.ResponseWriter, r *http.Request) (slug, ns string, ok bool) {
+	ref := chi.URLParam(r, "name")
 
-	userID, found := auth.LookupBucket(h.cfg.DataPath, name)
-	if !found {
+	bucketSlug, userID, _, err := auth.ResolveBucket(h.cfg.DataPath, ref)
+	if err != nil {
 		ErrorJSON(w, http.StatusNotFound, "Bucket not found")
 		return "", "", false
 	}
 
-	if code, msg := auth.AuthorizeBucket(r, h.cfg, h.cache, userID, name); code != 0 {
+	if code, msg := auth.AuthorizeBucket(r, h.cfg, h.cache, userID, bucketSlug); code != 0 {
 		ErrorJSON(w, code, msg)
 		return "", "", false
 	}
 
-	return name, bucketNS(name), true
+	return bucketSlug, bucketNS(bucketSlug), true
 }
 
 // List handles GET /api/buckets/{name}/files.

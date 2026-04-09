@@ -60,11 +60,13 @@ type SessionValue struct {
 }
 
 // APIKeyValue holds the data cached per hashed API key.
-// Scope format: 'all' | 'db:*' | 'db:<name>' | 'bucket:*' | 'bucket:<name>'
+// Scopes is a JSON-encoded array of permission strings using the format
+// "<type>:<target>:<level>" where level is "r" (read-only) or "w" (read+write).
+// Examples: ["all:w"], ["db:*:r"], ["db:D-abc-mydb:w"], ["bucket:B-abc-photos:r"]
 type APIKeyValue struct {
-	UserID string `json:"user_id"`
-	KeyID  string `json:"key_id"`
-	Scope  string `json:"scope"`
+	UserID string   `json:"user_id"`
+	KeyID  string   `json:"key_id"`
+	Scopes []string `json:"scopes"`
 }
 
 // PKCEValue holds PKCE state for the OAuth flow.

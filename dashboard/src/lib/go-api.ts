@@ -9,10 +9,13 @@
 
 const GO_API_URL = (process.env.GO_API_URL ?? "http://localhost:3000").replace(/\/$/, "");
 const ADMIN_TOKEN = process.env.ADMIN_TOKEN ?? "";
+/** Default timeout for all Go backend calls — prevents tab freeze when Go is slow/down. */
+const GO_FETCH_TIMEOUT_MS = 10_000;
 
 /** Call a Go API endpoint as the admin (ADMIN_TOKEN Bearer). */
 export function goFetchAdmin(path: string, init?: RequestInit): Promise<Response> {
   return fetch(`${GO_API_URL}${path}`, {
+    signal: AbortSignal.timeout(GO_FETCH_TIMEOUT_MS),
     ...init,
     headers: {
       "Content-Type": "application/json",
@@ -44,5 +47,9 @@ export function goFetchDb(
   };
   if (authHeader) headers["Authorization"] = authHeader;
 
-  return fetch(`${GO_API_URL}${path}`, { ...init, headers });
+  return fetch(`${GO_API_URL}${path}`, {
+    signal: AbortSignal.timeout(GO_FETCH_TIMEOUT_MS),
+    ...init,
+    headers,
+  });
 }

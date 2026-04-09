@@ -25,7 +25,7 @@ if [ "$NODE_ENV" = "development" ]; then
     GO_PID=$!
 
     echo "Starting Next.js dev server on :$NEXTJS_PORT ..."
-    cd /app/dashboard && PORT=$NEXTJS_PORT pnpm next dev --port $NEXTJS_PORT --hostname 0.0.0.0 &
+    cd /app/dashboard && PORT=$NEXTJS_PORT pnpm next dev --turbopack --port $NEXTJS_PORT --hostname 0.0.0.0 &
     NEXTJS_PID=$!
 
     echo "Waiting for Go server ..."

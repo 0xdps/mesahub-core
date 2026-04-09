@@ -8,6 +8,7 @@ import (
 	"crypto/sha256"
 	"database/sql"
 	"encoding/hex"
+	"encoding/json"
 	"fmt"
 	"path/filepath"
 	"strings"
@@ -27,8 +28,8 @@ PRAGMA foreign_keys=ON;
 CREATE TABLE IF NOT EXISTS users (
   id          TEXT PRIMARY KEY,
   email       TEXT NOT NULL UNIQUE,
-  nube_plan   TEXT NOT NULL DEFAULT 'free',
-  nube_status TEXT NOT NULL DEFAULT 'active',
+  plan   TEXT NOT NULL DEFAULT 'free',
+  status TEXT NOT NULL DEFAULT 'active',
   created_at  TEXT NOT NULL DEFAULT (datetime('now')),
   updated_at  TEXT
 );
@@ -46,24 +47,25 @@ CREATE TABLE IF NOT EXISTS instances (
 );
 
 CREATE TABLE IF NOT EXISTS databases (
-  id            TEXT PRIMARY KEY,
-  user_id       TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
-  name          TEXT NOT NULL,          -- user-visible unique name (slug)
-  template_name TEXT,                   -- template-internal name (e.g. D-<userpart>-<slug>)
-  display_name  TEXT NOT NULL,
-  description   TEXT,
-  instance_id   TEXT REFERENCES instances(id),
-  status        TEXT NOT NULL DEFAULT 'active',
-  size_bytes    INTEGER NOT NULL DEFAULT 0,
-  created_at    TEXT NOT NULL DEFAULT (datetime('now')),
-  updated_at    TEXT,
+  id           TEXT PRIMARY KEY,
+  user_id      TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  name         TEXT NOT NULL,          -- user-visible label
+  slug         TEXT NOT NULL DEFAULT '',-- template-internal name (e.g. D-<userpart>-<dbname>)
+  display_name TEXT NOT NULL,
+  description  TEXT,
+  instance_id  TEXT REFERENCES instances(id),
+  status       TEXT NOT NULL DEFAULT 'active',
+  size_bytes   INTEGER NOT NULL DEFAULT 0,
+  created_at   TEXT NOT NULL DEFAULT (datetime('now')),
+  updated_at   TEXT,
   UNIQUE(user_id, name)
 );
 
 CREATE TABLE IF NOT EXISTS buckets (
   id           TEXT PRIMARY KEY,
   user_id      TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
-  name         TEXT NOT NULL,          -- template-internal unique name
+  name         TEXT NOT NULL,          -- user-visible label
+  slug         TEXT NOT NULL DEFAULT '',-- template-internal name (e.g. B-<userpart>-<bucketname>)
   display_name TEXT NOT NULL,
   description  TEXT,
   instance_id  TEXT REFERENCES instances(id),
@@ -75,18 +77,23 @@ CREATE TABLE IF NOT EXISTS buckets (
 );
 
 -- Unified API keys for both databases and buckets.
--- scope examples:
---   'all'            → all databases and buckets
---   'db:*'           → all databases
---   'bucket:*'       → all buckets
---   'db:mydb'        → specific database by name
---   'bucket:photos'  → specific bucket by name
+-- scopes is a JSON array of permission strings. Suffix :r = read-only,
+-- :w = read+write (write implies read).
+-- Examples:
+--   '["all:w"]'                  -> full access to all databases and buckets
+--   '["all:r"]'                  -> read-only access to everything
+--   '["db:*:w"]'                 -> full access to all databases
+--   '["db:*:r"]'                 -> read-only to all databases
+--   '["db:D-abc-mydb:w"]'        -> full access to a specific database
+--   '["db:D-abc-mydb:r"]'        -> read-only to a specific database
+--   '["bucket:B-abc-photos:r"]'  -> read-only to a specific bucket
 CREATE TABLE IF NOT EXISTS api_keys (
   id           TEXT PRIMARY KEY,
   user_id      TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
   name         TEXT NOT NULL,
   key_hash     TEXT NOT NULL UNIQUE,
-  scope        TEXT NOT NULL DEFAULT 'all',
+  scopes       TEXT NOT NULL DEFAULT '["all:w"]',
+  expires_at   TEXT,
   status       TEXT NOT NULL DEFAULT 'active',
   last_used_at TEXT,
   created_at   TEXT NOT NULL DEFAULT (datetime('now'))
@@ -109,44 +116,17 @@ CREATE TABLE IF NOT EXISTS usage (
 );
 
 CREATE INDEX IF NOT EXISTS idx_databases_user_id ON databases(user_id);
+CREATE UNIQUE INDEX IF NOT EXISTS idx_databases_slug ON databases(slug) WHERE slug != '';
 CREATE INDEX IF NOT EXISTS idx_buckets_user_id   ON buckets(user_id);
+CREATE UNIQUE INDEX IF NOT EXISTS idx_buckets_slug ON buckets(slug) WHERE slug != '';
 CREATE INDEX IF NOT EXISTS idx_api_keys_user_id  ON api_keys(user_id);
 CREATE INDEX IF NOT EXISTS idx_api_keys_hash     ON api_keys(key_hash);
 CREATE INDEX IF NOT EXISTS idx_usage_user_period ON usage(user_id, period_year, period_month);
 `
 
-// migrations adds columns / tables that may be absent in databases created by
-// older versions of the schema. Each statement is run with IGNORE semantics via
-// a separate Exec call — errors (e.g. duplicate column) are silently swallowed.
-var migrations = []string{
-	`ALTER TABLE users     ADD COLUMN updated_at    TEXT`,
-	`ALTER TABLE databases ADD COLUMN description   TEXT`,
-	`ALTER TABLE databases ADD COLUMN instance_id   TEXT REFERENCES instances(id)`,
-	`ALTER TABLE databases ADD COLUMN updated_at    TEXT`,
-	// Legacy database credential fields are no longer used; auth uses api_keys.
-	// (SQLite cannot DROP COLUMN in older versions; we simply stop reading/writing it)
-	// Copy legacy sqlite_hub_instance_id → instance_id for pre-migration rows
-	`UPDATE databases SET instance_id = sqlite_hub_instance_id WHERE instance_id IS NULL AND sqlite_hub_instance_id IS NOT NULL`,
-	`CREATE TABLE IF NOT EXISTS buckets (
-	  id           TEXT PRIMARY KEY,
-	  user_id      TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
-	  name         TEXT NOT NULL,
-	  display_name TEXT NOT NULL,
-	  description  TEXT,
-	  instance_id  TEXT REFERENCES instances(id),
-	  status       TEXT NOT NULL DEFAULT 'active',
-	  size_bytes   INTEGER NOT NULL DEFAULT 0,
-	  created_at   TEXT NOT NULL DEFAULT (datetime('now')),
-	  updated_at   TEXT,
-	  UNIQUE(user_id, name)
-	)`,
-	`CREATE INDEX IF NOT EXISTS idx_buckets_user_id ON buckets(user_id)`,
-	`ALTER TABLE usage ADD COLUMN bucket_bytes INTEGER NOT NULL DEFAULT 0`,
-	// Add template_name to databases: stores the template-internal name (e.g. D-<userpart>-<slug>).
-	// Rows inserted before this migration will have template_name = NULL; LookupByUUID
-	// falls back to derivation for those rows.
-	`ALTER TABLE databases ADD COLUMN template_name TEXT`,
-}
+// migrations is intentionally empty — this is a fresh-schema deployment.
+// All schema objects are declared in the schema const above.
+var migrations = []string{}
 
 // ── DB wrapper ────────────────────────────────────────────────────────────────
 
@@ -191,12 +171,12 @@ func (c *ControlDB) Close() error { return c.db.Close() }
 
 // User is a control-plane user record.
 type User struct {
-	ID         string  `json:"id"`
-	Email      string  `json:"email"`
-	NubePlan   string  `json:"nube_plan"`
-	NubeStatus string  `json:"nube_status"`
-	CreatedAt  string  `json:"created_at"`
-	UpdatedAt  *string `json:"updated_at,omitempty"`
+	ID        string  `json:"id"`
+	Email     string  `json:"email"`
+	Plan      string  `json:"plan"`
+	Status    string  `json:"status"`
+	CreatedAt string  `json:"created_at"`
+	UpdatedAt *string `json:"updated_at,omitempty"`
 }
 
 // Database is a control-plane database record.
@@ -204,6 +184,7 @@ type Database struct {
 	ID          string  `json:"id"`
 	UserID      string  `json:"user_id"`
 	Name        string  `json:"name"`
+	Slug        string  `json:"slug"`
 	DisplayName string  `json:"display_name"`
 	Description *string `json:"description,omitempty"`
 	InstanceID  *string `json:"instance_id,omitempty"`
@@ -218,6 +199,7 @@ type Bucket struct {
 	ID          string  `json:"id"`
 	UserID      string  `json:"user_id"`
 	Name        string  `json:"name"`
+	Slug        string  `json:"slug"`
 	DisplayName string  `json:"display_name"`
 	Description *string `json:"description,omitempty"`
 	InstanceID  *string `json:"instance_id,omitempty"`
@@ -245,13 +227,14 @@ type Usage struct {
 
 // APIKey is a control-plane API key record (key_hash is never exposed via JSON).
 type APIKey struct {
-	ID         string  `json:"id"`
-	UserID     string  `json:"user_id"`
-	Name       string  `json:"name"`
-	Scope      string  `json:"scope"`
-	Status     string  `json:"status"`
-	LastUsedAt *string `json:"last_used_at"`
-	CreatedAt  string  `json:"created_at"`
+	ID         string   `json:"id"`
+	UserID     string   `json:"user_id"`
+	Name       string   `json:"name"`
+	Scopes     []string `json:"scopes"`
+	ExpiresAt  *string  `json:"expires_at,omitempty"`
+	Status     string   `json:"status"`
+	LastUsedAt *string  `json:"last_used_at"`
+	CreatedAt  string   `json:"created_at"`
 }
 
 // ── User ops ──────────────────────────────────────────────────────────────────
@@ -260,12 +243,12 @@ type APIKey struct {
 // Returns the stored user record.
 func (c *ControlDB) UpsertUser(nubeID, email, plan, status string) (*User, error) {
 	_, err := c.db.Exec(`
-		INSERT INTO users (id, email, nube_plan, nube_status)
+		INSERT INTO users (id, email, plan, status)
 		VALUES (?, ?, ?, ?)
 		ON CONFLICT(id) DO UPDATE SET
-		  email       = excluded.email,
-		  nube_plan   = excluded.nube_plan,
-		  nube_status = excluded.nube_status`,
+		  email  = excluded.email,
+		  plan   = excluded.plan,
+		  status = excluded.status`,
 		nubeID, email, plan, status)
 	if err != nil {
 		return nil, fmt.Errorf("control: upsert user: %w", err)
@@ -277,8 +260,8 @@ func (c *ControlDB) UpsertUser(nubeID, email, plan, status string) (*User, error
 func (c *ControlDB) GetUser(id string) (*User, error) {
 	u := &User{}
 	err := c.db.QueryRow(
-		`SELECT id, email, nube_plan, nube_status, created_at FROM users WHERE id = ?`, id,
-	).Scan(&u.ID, &u.Email, &u.NubePlan, &u.NubeStatus, &u.CreatedAt)
+		`SELECT id, email, plan, status, created_at FROM users WHERE id = ?`, id,
+	).Scan(&u.ID, &u.Email, &u.Plan, &u.Status, &u.CreatedAt)
 	if err == sql.ErrNoRows {
 		return nil, nil
 	}
@@ -290,7 +273,7 @@ func (c *ControlDB) GetUser(id string) (*User, error) {
 // ListDatabases returns all non-deleted databases for a user.
 func (c *ControlDB) ListDatabases(userID string) ([]Database, error) {
 	rows, err := c.db.Query(
-		`SELECT id, user_id, name, display_name, description, instance_id, status, size_bytes, created_at, updated_at
+		`SELECT id, user_id, name, slug, display_name, description, instance_id, status, size_bytes, created_at, updated_at
 		 FROM databases WHERE user_id = ? AND status != 'deleted'
 		 ORDER BY created_at DESC`, userID)
 	if err != nil {
@@ -303,14 +286,14 @@ func (c *ControlDB) ListDatabases(userID string) ([]Database, error) {
 // GetDatabase fetches a database by ID (any status).
 func (c *ControlDB) GetDatabase(id string) (*Database, error) {
 	return scanOneDatabase(c.db.QueryRow(
-		`SELECT id, user_id, name, display_name, description, instance_id, status, size_bytes, created_at, updated_at
+		`SELECT id, user_id, name, slug, display_name, description, instance_id, status, size_bytes, created_at, updated_at
 		 FROM databases WHERE id = ?`, id))
 }
 
-// GetDatabaseByName fetches a database record by its template-internal name.
+// GetDatabaseByName fetches a database record by user-visible name.
 func (c *ControlDB) GetDatabaseByName(name string) (*Database, error) {
 	return scanOneDatabase(c.db.QueryRow(
-		`SELECT id, user_id, name, display_name, description, instance_id, status, size_bytes, created_at, updated_at
+		`SELECT id, user_id, name, slug, display_name, description, instance_id, status, size_bytes, created_at, updated_at
 		 FROM databases WHERE name = ? AND status != 'deleted'`, name))
 }
 
@@ -324,11 +307,11 @@ func (c *ControlDB) CountActiveDatabases(userID string) (int, error) {
 }
 
 // CreateDatabase inserts a new database record.
-func (c *ControlDB) CreateDatabase(userID, name, displayName string) (*Database, error) {
+func (c *ControlDB) CreateDatabase(userID, name, slug, displayName string) (*Database, error) {
 	id := newID()
 	_, err := c.db.Exec(
-		`INSERT INTO databases (id, user_id, name, display_name) VALUES (?, ?, ?, ?)`,
-		id, userID, name, displayName)
+		`INSERT INTO databases (id, user_id, name, slug, display_name) VALUES (?, ?, ?, ?, ?)`,
+		id, userID, name, slug, displayName)
 	if err != nil {
 		return nil, fmt.Errorf("control: create database: %w", err)
 	}
@@ -360,7 +343,7 @@ func (c *ControlDB) UpdateDatabaseSize(name string, sizeBytes int64) error {
 // ListBuckets returns all non-deleted buckets for a user.
 func (c *ControlDB) ListBuckets(userID string) ([]Bucket, error) {
 	rows, err := c.db.Query(
-		`SELECT id, user_id, name, display_name, description, instance_id, status, size_bytes, created_at, updated_at
+		`SELECT id, user_id, name, slug, display_name, description, instance_id, status, size_bytes, created_at, updated_at
 		 FROM buckets WHERE user_id = ? AND status != 'deleted'
 		 ORDER BY created_at DESC`, userID)
 	if err != nil {
@@ -373,14 +356,14 @@ func (c *ControlDB) ListBuckets(userID string) ([]Bucket, error) {
 // GetBucket fetches a bucket by ID.
 func (c *ControlDB) GetBucket(id string) (*Bucket, error) {
 	return scanOneBucket(c.db.QueryRow(
-		`SELECT id, user_id, name, display_name, description, instance_id, status, size_bytes, created_at, updated_at
+		`SELECT id, user_id, name, slug, display_name, description, instance_id, status, size_bytes, created_at, updated_at
 		 FROM buckets WHERE id = ?`, id))
 }
 
-// GetBucketByName fetches a bucket by its template-internal name.
+// GetBucketByName fetches a bucket by user-visible name.
 func (c *ControlDB) GetBucketByName(name string) (*Bucket, error) {
 	return scanOneBucket(c.db.QueryRow(
-		`SELECT id, user_id, name, display_name, description, instance_id, status, size_bytes, created_at, updated_at
+		`SELECT id, user_id, name, slug, display_name, description, instance_id, status, size_bytes, created_at, updated_at
 		 FROM buckets WHERE name = ? AND status != 'deleted'`, name))
 }
 
@@ -394,11 +377,11 @@ func (c *ControlDB) CountActiveBuckets(userID string) (int, error) {
 }
 
 // CreateBucket inserts a new bucket record.
-func (c *ControlDB) CreateBucket(userID, name, displayName string, instanceID *string) (*Bucket, error) {
+func (c *ControlDB) CreateBucket(userID, name, slug, displayName string, instanceID *string) (*Bucket, error) {
 	id := newID()
 	_, err := c.db.Exec(
-		`INSERT INTO buckets (id, user_id, name, display_name, instance_id) VALUES (?, ?, ?, ?, ?)`,
-		id, userID, name, displayName, instanceID)
+		`INSERT INTO buckets (id, user_id, name, slug, display_name, instance_id) VALUES (?, ?, ?, ?, ?, ?)`,
+		id, userID, name, slug, displayName, instanceID)
 	if err != nil {
 		return nil, fmt.Errorf("control: create bucket: %w", err)
 	}
@@ -419,9 +402,9 @@ func (c *ControlDB) SoftDeleteBucket(id, userID string) error {
 }
 
 // UpdateBucketSize sets the cached size_bytes for a bucket record.
-func (c *ControlDB) UpdateBucketSize(name string, sizeBytes int64) error {
+func (c *ControlDB) UpdateBucketSize(slug string, sizeBytes int64) error {
 	_, err := c.db.Exec(
-		`UPDATE buckets SET size_bytes = ? WHERE name = ?`, sizeBytes, name)
+		`UPDATE buckets SET size_bytes = ? WHERE slug = ?`, sizeBytes, slug)
 	return err
 }
 
@@ -430,7 +413,7 @@ func (c *ControlDB) UpdateBucketSize(name string, sizeBytes int64) error {
 // ListAPIKeys returns all active API keys for a user.
 func (c *ControlDB) ListAPIKeys(userID string) ([]APIKey, error) {
 	rows, err := c.db.Query(
-		`SELECT id, user_id, name, scope, status, last_used_at, created_at
+		`SELECT id, user_id, name, scopes, expires_at, status, last_used_at, created_at
 		 FROM api_keys WHERE user_id = ? AND status = 'active'
 		 ORDER BY created_at DESC`, userID)
 	if err != nil {
@@ -441,17 +424,22 @@ func (c *ControlDB) ListAPIKeys(userID string) ([]APIKey, error) {
 }
 
 // CreateAPIKey generates a new API key and inserts it.
-// scope examples: 'all', 'db:*', 'db:mydb', 'bucket:*', 'bucket:photos'
+// scopes is a JSON array like ["all:w"], ["db:*:r"], ["db:D-abc-mydb:w"], etc.
 // Returns the created APIKey and the raw key value (shown once only).
-func (c *ControlDB) CreateAPIKey(userID, name, scope string) (*APIKey, string, error) {
+func (c *ControlDB) CreateAPIKey(userID, name string, scopes []string) (*APIKey, string, error) {
+	scopesJSON, err := json.Marshal(scopes)
+	if err != nil {
+		return nil, "", fmt.Errorf("control: marshal scopes: %w", err)
+	}
+
 	rawKey := "shs_" + randomHex(32)
 	sum := sha256.Sum256([]byte(rawKey))
 	keyHash := hex.EncodeToString(sum[:])
 
 	id := newID()
-	_, err := c.db.Exec(
-		`INSERT INTO api_keys (id, user_id, name, key_hash, scope) VALUES (?, ?, ?, ?, ?)`,
-		id, userID, name, keyHash, scope)
+	_, err = c.db.Exec(
+		`INSERT INTO api_keys (id, user_id, name, key_hash, scopes) VALUES (?, ?, ?, ?, ?)`,
+		id, userID, name, keyHash, string(scopesJSON))
 	if err != nil {
 		return nil, "", fmt.Errorf("control: create api key: %w", err)
 	}
@@ -518,7 +506,7 @@ func (c *ControlDB) GetCurrentUsage(userID string) (*Usage, error) {
 
 func (c *ControlDB) getAPIKey(id string) (*APIKey, error) {
 	return scanOneAPIKey(c.db.QueryRow(
-		`SELECT id, user_id, name, scope, status, last_used_at, created_at
+		`SELECT id, user_id, name, scopes, expires_at, status, last_used_at, created_at
 		 FROM api_keys WHERE id = ?`, id))
 }
 
@@ -526,7 +514,7 @@ func scanDatabases(rows *sql.Rows) ([]Database, error) {
 	var out []Database
 	for rows.Next() {
 		var d Database
-		if err := rows.Scan(&d.ID, &d.UserID, &d.Name, &d.DisplayName,
+		if err := rows.Scan(&d.ID, &d.UserID, &d.Name, &d.Slug, &d.DisplayName,
 			&d.Description, &d.InstanceID, &d.Status, &d.SizeBytes, &d.CreatedAt, &d.UpdatedAt); err != nil {
 			return nil, err
 		}
@@ -537,7 +525,7 @@ func scanDatabases(rows *sql.Rows) ([]Database, error) {
 
 func scanOneDatabase(row *sql.Row) (*Database, error) {
 	d := &Database{}
-	err := row.Scan(&d.ID, &d.UserID, &d.Name, &d.DisplayName,
+	err := row.Scan(&d.ID, &d.UserID, &d.Name, &d.Slug, &d.DisplayName,
 		&d.Description, &d.InstanceID, &d.Status, &d.SizeBytes, &d.CreatedAt, &d.UpdatedAt)
 	if err == sql.ErrNoRows {
 		return nil, nil
@@ -549,7 +537,7 @@ func scanBuckets(rows *sql.Rows) ([]Bucket, error) {
 	var out []Bucket
 	for rows.Next() {
 		var b Bucket
-		if err := rows.Scan(&b.ID, &b.UserID, &b.Name, &b.DisplayName,
+		if err := rows.Scan(&b.ID, &b.UserID, &b.Name, &b.Slug, &b.DisplayName,
 			&b.Description, &b.InstanceID, &b.Status, &b.SizeBytes, &b.CreatedAt, &b.UpdatedAt); err != nil {
 			return nil, err
 		}
@@ -560,7 +548,7 @@ func scanBuckets(rows *sql.Rows) ([]Bucket, error) {
 
 func scanOneBucket(row *sql.Row) (*Bucket, error) {
 	b := &Bucket{}
-	err := row.Scan(&b.ID, &b.UserID, &b.Name, &b.DisplayName,
+	err := row.Scan(&b.ID, &b.UserID, &b.Name, &b.Slug, &b.DisplayName,
 		&b.Description, &b.InstanceID, &b.Status, &b.SizeBytes, &b.CreatedAt, &b.UpdatedAt)
 	if err == sql.ErrNoRows {
 		return nil, nil
@@ -572,10 +560,12 @@ func scanAPIKeys(rows *sql.Rows) ([]APIKey, error) {
 	var out []APIKey
 	for rows.Next() {
 		var k APIKey
-		if err := rows.Scan(&k.ID, &k.UserID, &k.Name, &k.Scope,
-			&k.Status, &k.LastUsedAt, &k.CreatedAt); err != nil {
+		var scopesJSON string
+		if err := rows.Scan(&k.ID, &k.UserID, &k.Name, &scopesJSON,
+			&k.ExpiresAt, &k.Status, &k.LastUsedAt, &k.CreatedAt); err != nil {
 			return nil, err
 		}
+		_ = json.Unmarshal([]byte(scopesJSON), &k.Scopes)
 		out = append(out, k)
 	}
 	return out, rows.Err()
@@ -583,12 +573,17 @@ func scanAPIKeys(rows *sql.Rows) ([]APIKey, error) {
 
 func scanOneAPIKey(row *sql.Row) (*APIKey, error) {
 	k := &APIKey{}
-	err := row.Scan(&k.ID, &k.UserID, &k.Name, &k.Scope,
-		&k.Status, &k.LastUsedAt, &k.CreatedAt)
+	var scopesJSON string
+	err := row.Scan(&k.ID, &k.UserID, &k.Name, &scopesJSON,
+		&k.ExpiresAt, &k.Status, &k.LastUsedAt, &k.CreatedAt)
 	if err == sql.ErrNoRows {
 		return nil, nil
 	}
-	return k, err
+	if err != nil {
+		return nil, err
+	}
+	_ = json.Unmarshal([]byte(scopesJSON), &k.Scopes)
+	return k, nil
 }
 
 // newID returns a random hex ID (16 bytes = 32 hex chars).

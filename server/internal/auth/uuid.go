@@ -33,7 +33,7 @@ var (
 //	D-{userId with USR0 stripped, lowercased}-{dbName lowercased}
 //
 // with any non-alnum/dash/underscore chars replaced by '-'.
-// Used as a fallback for rows that pre-date the template_name column.
+// Used as a fallback for rows that pre-date the slug column.
 func ToTemplateName(userID, dbName string) string {
 	userPart := strings.ToLower(strings.TrimPrefix(strings.ToLower(userID), "usr0"))
 	resName := strings.ToLower(dbName)
@@ -42,9 +42,9 @@ func ToTemplateName(userID, dbName string) string {
 }
 
 // LookupByUUID resolves a control-plane database UUID to its template-internal
-// name and owner user ID. Opens control.db read-only; returns an error if the
+// slug and owner user ID. Opens control.db read-only; returns an error if the
 // database is not found or not active.
-func LookupByUUID(dataPath, uuid string) (templateName, userID string, err error) {
+func LookupByUUID(dataPath, uuid string) (slug, userID string, err error) {
 	controlPath := filepath.Join(dataPath, "control.db")
 	if _, statErr := os.Stat(controlPath); os.IsNotExist(statErr) {
 		return "", "", fmt.Errorf("control.db not found")
@@ -55,25 +55,19 @@ func LookupByUUID(dataPath, uuid string) (templateName, userID string, err error
 	}
 	defer cdb.Close()
 
-	var uid, name string
-	var tname sql.NullString
+	var uid, dbSlug string
 	if err := cdb.QueryRow(
-		"SELECT user_id, name, template_name FROM databases WHERE id = ? AND status = 'active'",
-		uuid).Scan(&uid, &name, &tname); err != nil {
+		"SELECT user_id, slug FROM databases WHERE id = ? AND status = 'active'",
+		uuid).Scan(&uid, &dbSlug); err != nil {
 		return "", "", fmt.Errorf("database not found")
 	}
-	// Use explicit template_name when present (set at CreateDatabase time).
-	// Fall back to ToTemplateName derivation for rows created before the migration.
-	if tname.Valid && tname.String != "" {
-		return tname.String, uid, nil
-	}
-	return ToTemplateName(uid, name), uid, nil
+	return dbSlug, uid, nil
 }
 
-// LookupByTemplateName resolves a template-internal database name (e.g.
+// LookupBySlug resolves a template-internal database slug (e.g.
 // D-a6fb1cmq9-mydb) to its owner user ID and control-plane UUID.
 // Returns an error if the database is not found or not active.
-func LookupByTemplateName(dataPath, templateName string) (userID, uuid string, err error) {
+func LookupBySlug(dataPath, slug string) (userID, uuid string, err error) {
 	controlPath := filepath.Join(dataPath, "control.db")
 	if _, statErr := os.Stat(controlPath); os.IsNotExist(statErr) {
 		return "", "", fmt.Errorf("control.db not found")
@@ -86,35 +80,34 @@ func LookupByTemplateName(dataPath, templateName string) (userID, uuid string, e
 
 	var uid, id string
 	if err := cdb.QueryRow(
-		"SELECT user_id, id FROM databases WHERE template_name = ? AND status = 'active'",
-		templateName).Scan(&uid, &id); err != nil {
+		"SELECT user_id, id FROM databases WHERE slug = ? AND status = 'active'",
+		slug).Scan(&uid, &id); err != nil {
 		return "", "", fmt.Errorf("database not found")
 	}
 	return uid, id, nil
 }
 
 // ResolveDB resolves a database reference — either a control-plane UUID or a
-// template-internal name (e.g. D-a6fb1cmq9-mydb) — to the template name,
+// template-internal slug (e.g. D-a6fb1cmq9-mydb) — to the slug,
 // owner user ID, and the control-plane UUID needed for AuthorizeDBByUUID.
 //
 // Clients can now address databases two ways:
 //
 //	POST /query/aa15ab54-1bd4-4e0a-9abb-4c09361fc444   (UUID)
-//	POST /query/D-a6fb1cmq9-test-db                    (template name)
-func ResolveDB(dataPath, ref string) (templateName, userID, resolvedUUID string, err error) {
+//	POST /query/D-a6fb1cmq9-test-db                    (slug)
+func ResolveDB(dataPath, ref string) (slug, userID, resolvedUUID string, err error) {
 	if uuidRE.MatchString(ref) {
-		tname, uid, e := LookupByUUID(dataPath, ref)
-		return tname, uid, ref, e
+		s, uid, e := LookupByUUID(dataPath, ref)
+		return s, uid, ref, e
 	}
-	// Treat ref as a template-internal name.
-	uid, id, e := LookupByTemplateName(dataPath, ref)
+	// Treat ref as a template-internal slug.
+	uid, id, e := LookupBySlug(dataPath, ref)
 	return ref, uid, id, e
 }
 
 // routes: when enforcing the scope of a "databases"-scoped API key, it checks
-// did == uuid (the URL parameter) rather than did == record.Name (the template
-// name). This is correct because api_key_databases.database_id stores the
-// control-plane UUID, not the template-internal name.
+// against record.Name (the template-internal slug) so the scope string
+// ["db:D-abc-mydb:w"] matches the slug stored in the databases table.
 //
 // It also accepts a valid control-plane user session (sqlitedbhub_session cookie)
 // when the logged-in user owns this database (verified via control.db).
@@ -138,31 +131,83 @@ func AuthorizeDBByUUID(r *http.Request, cfg *config.Config, c cache.Client, reco
 	}
 
 	bearer := extractBearer(r)
-
 	if bearer != "" && strings.HasPrefix(bearer, "shs_") {
 		kv, ok := ValidateAPIKey(r.Context(), c, cfg.DataPath, bearer)
 		if !ok || kv.UserID != record.Owner {
 			return http.StatusUnauthorized, "Unauthorized"
 		}
-		// Scope enforcement using the new string format.
-		// db:* or all → access any owned DB; db:<name> checked against template name.
-		// For UUID routes we also accept db:<name> where name is the user-visible name.
-		switch {
-		case kv.Scope == "all" || kv.Scope == "db:*":
-			return 0, ""
-		case strings.HasPrefix(kv.Scope, "db:"):
-			scopedName := kv.Scope[3:]
-			// Match against template-internal name (stored in record.Name)
-			if scopedName == record.Name {
-				return 0, ""
-			}
-			return http.StatusForbidden, "This API key does not have access to this database"
-		default:
+		op := "read"
+		if strings.Contains(r.URL.Path, "/exec") {
+			op = "write"
+		}
+		if !hasPermission(kv.Scopes, "db", record.Name, op) {
 			return http.StatusForbidden, "This API key does not have access to this database"
 		}
+		return 0, ""
 	}
 
 	return http.StatusUnauthorized, "Unauthorized"
+}
+
+// LookupBucketByUUID resolves a control-plane bucket UUID to its
+// template-internal slug and owner user ID.
+func LookupBucketByUUID(dataPath, uuid string) (slug, userID string, err error) {
+	controlPath := filepath.Join(dataPath, "control.db")
+	if _, statErr := os.Stat(controlPath); os.IsNotExist(statErr) {
+		return "", "", fmt.Errorf("control.db not found")
+	}
+	cdb, err := sql.Open("sqlite3", controlPath+"?mode=ro")
+	if err != nil {
+		return "", "", err
+	}
+	defer cdb.Close()
+
+	var uid, bslug string
+	if err := cdb.QueryRow(
+		"SELECT user_id, slug FROM buckets WHERE id = ? AND status = 'active'",
+		uuid).Scan(&uid, &bslug); err != nil {
+		return "", "", fmt.Errorf("bucket not found")
+	}
+	return bslug, uid, nil
+}
+
+// LookupBucketBySlug resolves a template-internal bucket slug (e.g.
+// B-a6fb1cmq9-photos) to its owner user ID and control-plane UUID.
+func LookupBucketBySlug(dataPath, slug string) (userID, uuid string, err error) {
+	controlPath := filepath.Join(dataPath, "control.db")
+	if _, statErr := os.Stat(controlPath); os.IsNotExist(statErr) {
+		return "", "", fmt.Errorf("control.db not found")
+	}
+	cdb, err := sql.Open("sqlite3", controlPath+"?mode=ro")
+	if err != nil {
+		return "", "", err
+	}
+	defer cdb.Close()
+
+	var uid, id string
+	if err := cdb.QueryRow(
+		"SELECT user_id, id FROM buckets WHERE slug = ? AND status = 'active'",
+		slug).Scan(&uid, &id); err != nil {
+		return "", "", fmt.Errorf("bucket not found")
+	}
+	return uid, id, nil
+}
+
+// ResolveBucket resolves a bucket reference — either a control-plane UUID or
+// a template-internal slug — to the slug, owner user ID, and UUID.
+//
+// Clients can address buckets two ways:
+//
+//	GET /api/buckets/aa15ab54-1bd4-4e0a-9abb-4c09361fc444/files   (UUID)
+//	GET /api/buckets/B-a6fb1cmq9-photos/files                     (slug)
+func ResolveBucket(dataPath, ref string) (slug, userID, resolvedUUID string, err error) {
+	if uuidRE.MatchString(ref) {
+		s, uid, e := LookupBucketByUUID(dataPath, ref)
+		return s, uid, ref, e
+	}
+	// Treat ref as a template-internal slug.
+	uid, id, e := LookupBucketBySlug(dataPath, ref)
+	return ref, uid, id, e
 }
 
 // IsOwnedByControlUser reports whether the database with the given UUID is
