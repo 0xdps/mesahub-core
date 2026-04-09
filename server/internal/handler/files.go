@@ -129,9 +129,11 @@ func (h *FilesHandler) Upload(w http.ResponseWriter, r *http.Request) {
 	var expiresAt sql.NullString
 	if expiresInStr != "" {
 		if secs, err := strconv.Atoi(expiresInStr); err == nil && secs > 0 {
-			// Use SQLite datetime expression.
+			// Compute an absolute RFC3339 timestamp. Storing a SQLite expression
+			// string (e.g. "datetime('now', '+N seconds')") as a literal value
+			// would cause expiry comparisons to never match.
 			expiresAt = sql.NullString{
-				String: fmt.Sprintf("datetime('now', '+%d seconds')", secs),
+				String: time.Now().UTC().Add(time.Duration(secs) * time.Second).Format(time.RFC3339),
 				Valid:  true,
 			}
 		}
@@ -223,7 +225,7 @@ func (h *FilesHandler) serveFile(w http.ResponseWriter, r *http.Request, headOnl
 	w.Header().Set("Content-Type", ct)
 	w.Header().Set("Content-Length", strconv.FormatInt(stored.SizeBytes, 10))
 	w.Header().Set("Content-Disposition",
-		"inline; filename=\""+strings.ReplaceAll(stored.Filename, `"`, `\"`)+`"`)
+		"inline; filename=\""+sanitizeHeaderFilename(stored.Filename)+`"`)
 
 	if headOnly {
 		w.WriteHeader(http.StatusOK)
@@ -240,7 +242,12 @@ func (h *FilesHandler) serveFile(w http.ResponseWriter, r *http.Request, headOnl
 	}
 
 	// Stream blob directly.
-	f, err := os.Open(stored.StoragePath)
+	cleanPath := filepath.Clean(stored.StoragePath)
+	if !strings.HasPrefix(cleanPath, filepath.Clean(h.cfg.DataPath)+string(filepath.Separator)) {
+		ErrorJSON(w, http.StatusInternalServerError, "file path error")
+		return
+	}
+	f, err := os.Open(cleanPath)
 	if err != nil {
 		ErrorJSON(w, http.StatusInternalServerError, "file unavailable")
 		return
@@ -508,7 +515,7 @@ func (h *FilesHandler) FileShortlink(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", ct)
 	w.Header().Set("Content-Length", strconv.FormatInt(stored.SizeBytes, 10))
 	w.Header().Set("Content-Disposition",
-		disp+"; filename=\""+strings.ReplaceAll(stored.Filename, `"`, `\"`)+`"`)
+		disp+"; filename=\""+sanitizeHeaderFilename(stored.Filename)+`"`)
 
 	if h.cfg.EnableFileProxyDelivery {
 		w.Header().Set("X-Sendfile", "/"+filepath.Base(stored.StoragePath))
@@ -516,7 +523,12 @@ func (h *FilesHandler) FileShortlink(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	f, err := os.Open(stored.StoragePath)
+	cleanPath2 := filepath.Clean(stored.StoragePath)
+	if !strings.HasPrefix(cleanPath2, filepath.Clean(h.cfg.DataPath)+string(filepath.Separator)) {
+		ErrorJSON(w, http.StatusInternalServerError, "file path error")
+		return
+	}
+	f, err := os.Open(cleanPath2)
 	if err != nil {
 		ErrorJSON(w, http.StatusInternalServerError, "file unavailable")
 		return
@@ -634,7 +646,7 @@ func (h *FilesHandler) UploadByUUID(w http.ResponseWriter, r *http.Request) {
 	if expiresInStr != "" {
 		if secs, err := strconv.Atoi(expiresInStr); err == nil && secs > 0 {
 			expiresAt = sql.NullString{
-				String: fmt.Sprintf("datetime('now', '+%d seconds')", secs),
+				String: time.Now().UTC().Add(time.Duration(secs) * time.Second).Format(time.RFC3339),
 				Valid:  true,
 			}
 		}
@@ -712,7 +724,7 @@ func (h *FilesHandler) serveFileByUUID(w http.ResponseWriter, r *http.Request, h
 	w.Header().Set("Content-Type", ct)
 	w.Header().Set("Content-Length", strconv.FormatInt(stored.SizeBytes, 10))
 	w.Header().Set("Content-Disposition",
-		"inline; filename=\""+strings.ReplaceAll(stored.Filename, `"`, `\"`)+`"`)
+		"inline; filename=\""+sanitizeHeaderFilename(stored.Filename)+`"`)
 
 	if headOnly {
 		w.WriteHeader(http.StatusOK)
@@ -725,7 +737,12 @@ func (h *FilesHandler) serveFileByUUID(w http.ResponseWriter, r *http.Request, h
 		return
 	}
 
-	f, err := os.Open(stored.StoragePath)
+	cleanPath3 := filepath.Clean(stored.StoragePath)
+	if !strings.HasPrefix(cleanPath3, filepath.Clean(h.cfg.DataPath)+string(filepath.Separator)) {
+		ErrorJSON(w, http.StatusInternalServerError, "file path error")
+		return
+	}
+	f, err := os.Open(cleanPath3)
 	if err != nil {
 		ErrorJSON(w, http.StatusInternalServerError, "file unavailable")
 		return
@@ -798,4 +815,21 @@ func fileRecord(f *files.StoredFile, dbName string, r *http.Request) map[string]
 		"expires_at":   nullStr(f.ExpiresAt),
 		"metadata":     nullStr(f.Metadata),
 	}
+}
+
+// sanitizeHeaderFilename removes characters that are unsafe to embed in an HTTP
+// header value, preventing response-splitting and header-injection attacks.
+// Specifically strips CR (\r), LF (\n), NUL, double-quotes, semicolons, and
+// backslashes — any of which could break the Content-Disposition header grammar.
+func sanitizeHeaderFilename(name string) string {
+	var sb strings.Builder
+	for _, r := range name {
+		switch r {
+		case '\r', '\n', '\x00', '"', ';', '\\':
+			// Drop unsafe characters.
+		default:
+			sb.WriteRune(r)
+		}
+	}
+	return sb.String()
 }

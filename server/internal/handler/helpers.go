@@ -36,6 +36,10 @@ type colHeader struct {
 	Type         string `json:"type"`
 }
 
+// maxScanRows is the upper bound on rows returned by a single query/exec response.
+// Prevents unbounded memory allocation when a query matches a very large table.
+const maxScanRows = 100_000
+
 // scanRows drains a *sql.Rows result set into the wire format expected by
 // /query and /exec. Caller must close rows after this returns.
 func scanRows(rows *sql.Rows) (headers []colHeader, rowData []map[string]any, rowsRead int, err error) {
@@ -66,6 +70,11 @@ func scanRows(rows *sql.Rows) (headers []colHeader, rowData []map[string]any, ro
 	}
 
 	for rows.Next() {
+		if rowsRead >= maxScanRows {
+			// Truncate silently at the limit; the rowsRead count in the response
+			// lets the caller detect that results were capped.
+			break
+		}
 		if err = rows.Scan(ptrs...); err != nil {
 			return nil, nil, rowsRead, err
 		}

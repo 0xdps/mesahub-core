@@ -122,6 +122,11 @@ func intEnv(key string, fallback int) int {
 	}
 	n, err := strconv.Atoi(v)
 	if err != nil {
+		fmt.Fprintf(os.Stderr, "config: %s has invalid integer value %q — using default %d\n", key, v, fallback)
+		return fallback
+	}
+	if n < 0 {
+		fmt.Fprintf(os.Stderr, "config: %s has negative value %d — using default %d\n", key, n, fallback)
 		return fallback
 	}
 	return n

@@ -189,7 +189,12 @@ func timingSafeEqual(a, b string) bool {
 
 func mustUUID() string {
 	var b [16]byte
-	_, _ = rand.Read(b[:])
+	if _, err := rand.Read(b[:]); err != nil {
+		// crypto/rand should never fail on a healthy system. If it does, panicking
+		// is safer than silently returning all-zero UUIDs, which would cause all
+		// tokens to share the same token_id and make revocation of one revoke all.
+		panic("filetoken: crypto/rand unavailable: " + err.Error())
+	}
 	b[6] = (b[6] & 0x0f) | 0x40
 	b[8] = (b[8] & 0x3f) | 0x80
 	return fmt.Sprintf("%08x-%04x-%04x-%04x-%012x", b[0:4], b[4:6], b[6:8], b[8:10], b[10:16])

@@ -14,12 +14,18 @@ import (
 	"crypto/sha256"
 	"encoding/base64"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
 	"net/url"
 	"strings"
+	"time"
 )
+
+// ErrNotFound is returned when NubeAuth responds with a 404 — e.g. no active
+// subscription exists for the user.
+var ErrNotFound = errors.New("nube: not found")
 
 // Client is a NubeAuth HTTP client scoped to a single app.
 type Client struct {
@@ -35,7 +41,7 @@ func NewClient(gatewayURL, appID, appSecret string) *Client {
 		gatewayURL: strings.TrimRight(gatewayURL, "/"),
 		appID:      appID,
 		appSecret:  appSecret,
-		httpClient: &http.Client{},
+		httpClient: &http.Client{Timeout: 10 * time.Second},
 	}
 }
 
@@ -124,11 +130,18 @@ type Subscription struct {
 }
 
 // GetSubscription fetches the authenticated user's subscription details.
-// Returns a zero-value Subscription on error (caller should treat as free plan).
+// Returns a free-plan Subscription only when NubeAuth reports 404 (no active
+// subscription). Any other error (network failure, 5xx, timeout) is returned
+// to the caller so the application can handle it explicitly rather than
+// silently granting free-tier access.
 func (c *Client) GetSubscription(accessToken string) (*Subscription, error) {
 	var s Subscription
 	if err := c.getAuthed("/v1/subscriptions/me", accessToken, &s); err != nil {
-		return &Subscription{PlanSlug: "free", Status: "active"}, nil
+		if errors.Is(err, ErrNotFound) {
+			// No subscription record — treat as free plan.
+			return &Subscription{PlanSlug: "free", Status: "active"}, nil
+		}
+		return nil, err
 	}
 	return &s, nil
 }
@@ -175,6 +188,9 @@ func (c *Client) getAuthed(path, token string, out any) error {
 	}
 	defer resp.Body.Close()
 	raw, _ := io.ReadAll(resp.Body)
+	if resp.StatusCode == http.StatusNotFound {
+		return ErrNotFound
+	}
 	if resp.StatusCode >= 400 {
 		return fmt.Errorf("nube: GET %s: status %d — %s", path, resp.StatusCode, raw)
 	}

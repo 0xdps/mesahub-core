@@ -21,6 +21,7 @@ import (
 const schema = `
 PRAGMA journal_mode=WAL;
 PRAGMA synchronous=NORMAL;
+PRAGMA busy_timeout=5000;
 PRAGMA foreign_keys=ON;
 
 CREATE TABLE IF NOT EXISTS users (
@@ -158,7 +159,7 @@ type ControlDB struct {
 // runs the schema migration, and returns a ready ControlDB.
 func Open(dataPath string) (*ControlDB, error) {
 	path := filepath.Join(dataPath, "control.db")
-	db, err := sql.Open("sqlite3", path)
+	db, err := sql.Open("sqlite3", path+"?_busy_timeout=5000")
 	if err != nil {
 		return nil, fmt.Errorf("control: open: %w", err)
 	}
@@ -167,9 +168,18 @@ func Open(dataPath string) (*ControlDB, error) {
 		db.Close()
 		return nil, fmt.Errorf("control: schema: %w", err)
 	}
-	// Run additive migrations (swallow "duplicate column" errors — idempotent).
+	// Run additive migrations. "duplicate column" errors are expected on
+	// already-migrated databases and are silently skipped. Any other error
+	// is fatal — it indicates a genuine schema inconsistency.
 	for _, m := range migrations {
-		_, _ = db.Exec(m)
+		if _, err := db.Exec(m); err != nil {
+			msg := err.Error()
+			if !strings.Contains(msg, "duplicate column") &&
+				!strings.Contains(msg, "already exists") {
+				db.Close()
+				return nil, fmt.Errorf("control: migration failed: %w", err)
+			}
+		}
 	}
 	return &ControlDB{db: db}, nil
 }

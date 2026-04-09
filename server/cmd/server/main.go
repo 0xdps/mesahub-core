@@ -103,6 +103,17 @@ func main() {
 	r.Use(middleware.StripInternalHeaders)
 	r.Use(middleware.Logger)
 	r.Use(chimw.Recoverer)
+	// Cap request bodies at 10 MB for all non-upload routes. Upload handlers
+	// enforce their own limit via io.LimitReader; this guards JSON routes against
+	// unbounded body reads.
+	r.Use(func(next http.Handler) http.Handler {
+		return http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
+			if req.Body != nil {
+				req.Body = http.MaxBytesReader(w, req.Body, 10<<20)
+			}
+			next.ServeHTTP(w, req)
+		})
+	})
 	r.Use(auth.CORS(cfg))
 	r.Use(auth.ControlPlaneStamper(cfg))
 	r.Use(auth.AdminStamper(cfg, cacheClient))
@@ -238,11 +249,12 @@ func main() {
 
 	// ── Server ────────────────────────────────────────────────────────────────
 	srv := &http.Server{
-		Addr:         fmt.Sprintf(":%d", cfg.Port),
-		Handler:      r,
-		ReadTimeout:  30 * time.Second,
-		WriteTimeout: 60 * time.Second,
-		IdleTimeout:  120 * time.Second,
+		Addr:              fmt.Sprintf(":%d", cfg.Port),
+		Handler:           r,
+		ReadHeaderTimeout: 10 * time.Second, // guards against slowloris header attacks
+		ReadTimeout:       30 * time.Second,
+		WriteTimeout:      60 * time.Second,
+		IdleTimeout:       120 * time.Second,
 	}
 
 	// Graceful shutdown

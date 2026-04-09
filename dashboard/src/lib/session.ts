@@ -2,18 +2,22 @@ import { SessionOptions } from "iron-session";
 
 const sessionSecret = process.env.SESSION_SECRET ?? "";
 
-// if (process.env.NODE_ENV === "production") {
-//   if (!sessionSecret || sessionSecret.length < 32 || sessionSecret.includes("change-me")) {
-//     throw new Error("SESSION_SECRET must be set to a strong value (>=32 chars) in production");
-//   }
-// }
+if (
+  !sessionSecret ||
+  sessionSecret.length < 32 ||
+  sessionSecret.includes("change-me")
+) {
+  throw new Error(
+    "SESSION_SECRET must be set to a strong, unique value (≥32 chars) and must not contain 'change-me'"
+  );
+}
 
 export interface SessionData {
   isLoggedIn: boolean;
 }
 
 export const sessionOptions: SessionOptions = {
-  password: sessionSecret || "change-me-in-production-min-32-chars!!",
+  password: sessionSecret,
   cookieName: "sqlitedbhub_session",
   cookieOptions: {
     secure: process.env.NODE_ENV === "production",

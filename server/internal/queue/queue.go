@@ -23,12 +23,17 @@ type job struct {
 // Queue manages per-database write goroutines.
 type Queue struct {
 	mu       sync.Mutex
+	wg       sync.WaitGroup
 	workers  map[string]chan job
 	maxDepth int
 }
 
 // New creates a Queue where each per-db channel has capacity maxDepth.
+// maxDepth must be positive; a zero or negative value is replaced with 256.
 func New(maxDepth int) *Queue {
+	if maxDepth <= 0 {
+		maxDepth = 256
+	}
 	return &Queue{
 		workers:  make(map[string]chan job),
 		maxDepth: maxDepth,
@@ -61,7 +66,11 @@ func (q *Queue) workerFor(dbName string) chan job {
 	}
 	ch := make(chan job, q.maxDepth)
 	q.workers[dbName] = ch
-	go runWorker(dbName, ch)
+	q.wg.Add(1)
+	go func() {
+		defer q.wg.Done()
+		runWorker(dbName, ch)
+	}()
 	return ch
 }
 
@@ -74,15 +83,18 @@ func runWorker(dbName string, ch <-chan job) {
 	log.Debug().Str("db", dbName).Msg("write queue worker stopped")
 }
 
-// Stop drains and closes all worker channels. Call during graceful shutdown.
+// Stop drains and closes all worker channels, then waits for all goroutines to
+// finish processing in-flight jobs. Call during graceful shutdown.
 func (q *Queue) Stop() {
 	q.mu.Lock()
-	defer q.mu.Unlock()
 	for name, ch := range q.workers {
 		close(ch)
 		delete(q.workers, name)
 		log.Debug().Str("db", name).Msg("write queue worker closed")
 	}
+	q.mu.Unlock()
+	// Wait for all workers to drain their channels before returning.
+	q.wg.Wait()
 }
 
 // Depth returns the total number of pending jobs across all per-db channels.

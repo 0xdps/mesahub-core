@@ -41,13 +41,15 @@ func IssueSession(w http.ResponseWriter, r *http.Request, cfg *config.Config, c 
 		cookieVal = tok
 	}
 
+	// SECURE_COOKIES=true must be set explicitly in production Go deployments.
+	// NODE_ENV is a Node.js convention and is not reliable in a Go process.
 	http.SetCookie(w, &http.Cookie{
 		Name:     SessionCookieName,
 		Value:    cookieVal,
 		MaxAge:   int(sessionTTL.Seconds()),
 		HttpOnly: true,
 		SameSite: http.SameSiteLaxMode,
-		Secure:   os.Getenv("NODE_ENV") == "production",
+		Secure:   os.Getenv("SECURE_COOKIES") == "true",
 		Path:     "/",
 	})
 	return nil

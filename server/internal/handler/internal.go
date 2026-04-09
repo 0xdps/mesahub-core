@@ -36,6 +36,10 @@ func (h *InternalHandler) InvalidateAPIKey(w http.ResponseWriter, r *http.Reques
 		ErrorJSON(w, http.StatusBadRequest, "hash is required")
 		return
 	}
+	if len(keyHash) < 8 {
+		ErrorJSON(w, http.StatusBadRequest, "invalid hash")
+		return
+	}
 
 	if err := h.cache.DeleteAPIKey(r.Context(), keyHash); err != nil {
 		log.Error().Err(err).Str("hash", keyHash[:8]+"...").Msg("[internal] cache evict failed")

@@ -20,6 +20,20 @@ import (
 var blockedQueryPattern = regexp.MustCompile(
 	`(?i)^\s*(INSERT|UPDATE|DELETE|DROP|ALTER|CREATE|ATTACH|DETACH|VACUUM|REPLACE|UPSERT|PRAGMA\s+\w+\s*=)`)
 
+// sqlBlockCommentRe matches /* ... */ block comments (non-greedy, including newlines).
+var sqlBlockCommentRe = regexp.MustCompile(`(?s)/\*.*?\*/`)
+
+// sqlLineCommentRe matches -- ... line comments.
+var sqlLineCommentRe = regexp.MustCompile(`--[^\n]*`)
+
+// stripSQLComments removes block and line comments from a SQL statement so that
+// the blocked-pattern check cannot be bypassed with a leading /* */ or --.
+func stripSQLComments(s string) string {
+	s = sqlBlockCommentRe.ReplaceAllString(s, "")
+	s = sqlLineCommentRe.ReplaceAllString(s, "")
+	return s
+}
+
 // QueryHandler holds dependencies for read-only query execution.
 type QueryHandler struct {
 	cfg      *config.Config
@@ -64,7 +78,7 @@ func (h *QueryHandler) Query(w http.ResponseWriter, r *http.Request) {
 		ErrorJSON(w, http.StatusBadRequest, "sql exceeds maximum allowed length")
 		return
 	}
-	if blockedQueryPattern.MatchString(body.SQL) {
+	if blockedQueryPattern.MatchString(stripSQLComments(body.SQL)) {
 		ErrorJSON(w, http.StatusForbidden,
 			"This SQL statement is not allowed on the /query endpoint. Use /exec instead.")
 		return
@@ -161,7 +175,7 @@ func (h *QueryHandler) QueryByUUID(w http.ResponseWriter, r *http.Request) {
 		ErrorJSON(w, http.StatusBadRequest, "sql exceeds maximum allowed length")
 		return
 	}
-	if blockedQueryPattern.MatchString(body.SQL) {
+	if blockedQueryPattern.MatchString(stripSQLComments(body.SQL)) {
 		ErrorJSON(w, http.StatusForbidden,
 			"This SQL statement is not allowed on the /query endpoint. Use /exec instead.")
 		return
