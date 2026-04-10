@@ -81,7 +81,21 @@ EOF
 else
 # ---------------------------------------------------------------------------
     echo "Starting SQLite Hub in PRODUCTION mode"
-    mkdir -p /data /data/files/blobs
+
+    # Railway volumes mount asynchronously — wait until /data is writable
+    # before starting the Go server (which opens SQLite files there).
+    echo "Waiting for /data volume to be ready ..."
+    attempts=0
+    until mkdir -p /data/files/blobs && touch /data/.ready 2>/dev/null; do
+        attempts=$((attempts + 1))
+        if [ $attempts -ge 15 ]; then
+            echo "ERROR: /data volume not writable after 30s — check Railway volume config"
+            exit 1
+        fi
+        sleep 2
+    done
+    rm -f /data/.ready
+    echo "/data volume is ready"
 
     if [ ! -f /app/dashboard/.next/standalone/server.js ]; then
         echo "Next.js standalone build not found at /app/dashboard/.next/standalone/server.js"
