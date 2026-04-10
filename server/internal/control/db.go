@@ -126,7 +126,11 @@ CREATE INDEX IF NOT EXISTS idx_usage_user_period ON usage(user_id, period_year, 
 
 // migrations is intentionally empty — this is a fresh-schema deployment.
 // All schema objects are declared in the schema const above.
-var migrations = []string{}
+var migrations = []string{
+	// Add slug column to databases and buckets if not present (added after initial deploy).
+	`ALTER TABLE databases ADD COLUMN slug TEXT NOT NULL DEFAULT ''`,
+	`ALTER TABLE buckets  ADD COLUMN slug TEXT NOT NULL DEFAULT ''`,
+}
 
 // ── DB wrapper ────────────────────────────────────────────────────────────────
 
