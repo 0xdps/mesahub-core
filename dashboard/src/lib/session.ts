@@ -10,10 +10,6 @@ if (process.env.NEXT_PHASE !== "phase-production-build") {
     sessionSecret.length < 32 ||
     sessionSecret.includes("change-me")
   ) {
-    console.error(
-      "Error: SESSION_SECRET must be set to a strong, unique value (≥32 chars) and must not contain 'change-me'",
-      sessionSecret
-    );
     throw new Error(
       "SESSION_SECRET must be set to a strong, unique value (≥32 chars) and must not contain 'change-me'"
     );
