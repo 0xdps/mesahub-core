@@ -94,7 +94,7 @@ else
     fi
 
     echo "Starting Go server and Next.js via supervisord ..."
-    supervisord -c /etc/supervisor/conf.d/sqlite-hub.conf &
+    PORT=$GO_PORT supervisord -c /etc/supervisor/conf.d/sqlite-hub.conf &
     SUPERVISOR_PID=$!
 
     echo "Waiting for Go server on :$GO_PORT ..."
