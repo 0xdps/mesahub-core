@@ -231,7 +231,8 @@ func main() {
 		// The control plane writes user/key data here via the admin exec endpoint.
 		cdb, err := control.Open(cfg.DataPath)
 		if err != nil {
-			log.Fatal().Err(err).Msg("control DB open failed")
+			fmt.Fprintf(os.Stderr, "FATAL control DB open failed: %v (DATA_PATH=%s)\n", err, cfg.DataPath)
+			log.Fatal().Err(err).Str("data_path", cfg.DataPath).Msg("control DB open failed")
 		}
 		defer cdb.Close()
 
