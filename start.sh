@@ -94,6 +94,21 @@ else
     fi
 
     echo "Starting Go server and Next.js via supervisord ..."
+
+    # Validate required Go server env vars before launching — fail fast with a clear message
+    missing=""
+    for var in ADMIN_TOKEN SESSION_SECRET FILE_TOKEN_SIGNING_SECRET; do
+        eval "val=\${$var:-}"
+        if [ -z "$val" ]; then
+            missing="$missing $var"
+        fi
+    done
+    if [ -n "$missing" ]; then
+        echo "ERROR: The following required environment variables are not set:$missing"
+        echo "Set them in Railway > Variables and redeploy."
+        exit 1
+    fi
+
     PORT=$GO_PORT supervisord -c /etc/supervisor/conf.d/sqlite-hub.conf &
     SUPERVISOR_PID=$!
 
