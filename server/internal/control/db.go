@@ -28,10 +28,13 @@ PRAGMA foreign_keys=ON;
 CREATE TABLE IF NOT EXISTS users (
   id          TEXT PRIMARY KEY,
   email       TEXT NOT NULL UNIQUE,
-  plan   TEXT NOT NULL DEFAULT 'free',
-  status TEXT NOT NULL DEFAULT 'active',
-  created_at  TEXT NOT NULL DEFAULT (datetime('now')),
-  updated_at  TEXT
+  plan                TEXT NOT NULL DEFAULT 'free',
+  status              TEXT NOT NULL DEFAULT 'active',
+  license_status      TEXT DEFAULT '',
+  entitlements        TEXT DEFAULT '{}',
+  license_synced_at   TEXT,
+  created_at          TEXT NOT NULL DEFAULT (datetime('now')),
+  updated_at          TEXT
 );
 
 CREATE TABLE IF NOT EXISTS instances (
@@ -130,6 +133,9 @@ var migrations = []string{
 	// Add slug column to databases and buckets if not present (added after initial deploy).
 	`ALTER TABLE databases ADD COLUMN slug TEXT NOT NULL DEFAULT ''`,
 	`ALTER TABLE buckets  ADD COLUMN slug TEXT NOT NULL DEFAULT ''`,
+	`ALTER TABLE users ADD COLUMN license_status TEXT DEFAULT ''`,
+	`ALTER TABLE users ADD COLUMN entitlements TEXT DEFAULT '{}'`,
+	`ALTER TABLE users ADD COLUMN license_synced_at TEXT`,
 }
 
 // ── DB wrapper ────────────────────────────────────────────────────────────────
@@ -175,12 +181,15 @@ func (c *ControlDB) Close() error { return c.db.Close() }
 
 // User is a control-plane user record.
 type User struct {
-	ID        string  `json:"id"`
-	Email     string  `json:"email"`
-	Plan      string  `json:"plan"`
-	Status    string  `json:"status"`
-	CreatedAt string  `json:"created_at"`
-	UpdatedAt *string `json:"updated_at,omitempty"`
+	ID              string  `json:"id"`
+	Email           string  `json:"email"`
+	Plan            string  `json:"plan"`
+	Status          string  `json:"status"`
+	LicenseStatus   *string `json:"license_status,omitempty"`
+	Entitlements    *string `json:"entitlements,omitempty"`
+	LicenseSyncedAt *string `json:"license_synced_at,omitempty"`
+	CreatedAt       string  `json:"created_at"`
+	UpdatedAt       *string `json:"updated_at,omitempty"`
 }
 
 // Database is a control-plane database record.
@@ -245,15 +254,18 @@ type APIKey struct {
 
 // UpsertUser inserts or updates the user identified by nubeID.
 // Returns the stored user record.
-func (c *ControlDB) UpsertUser(nubeID, email, plan, status string) (*User, error) {
+func (c *ControlDB) UpsertUser(nubeID, email, plan, status, licenseStatus, entitlements, licenseSyncedAt string) (*User, error) {
 	_, err := c.db.Exec(`
-		INSERT INTO users (id, email, plan, status)
-		VALUES (?, ?, ?, ?)
+		INSERT INTO users (id, email, plan, status, license_status, entitlements, license_synced_at)
+		VALUES (?, ?, ?, ?, ?, ?, ?)
 		ON CONFLICT(id) DO UPDATE SET
-		  email  = excluded.email,
-		  plan   = excluded.plan,
-		  status = excluded.status`,
-		nubeID, email, plan, status)
+		  email             = excluded.email,
+		  plan              = excluded.plan,
+		  status            = excluded.status,
+		  license_status    = excluded.license_status,
+		  entitlements      = excluded.entitlements,
+		  license_synced_at = excluded.license_synced_at`,
+		nubeID, email, plan, status, licenseStatus, entitlements, licenseSyncedAt)
 	if err != nil {
 		return nil, fmt.Errorf("control: upsert user: %w", err)
 	}
@@ -264,8 +276,8 @@ func (c *ControlDB) UpsertUser(nubeID, email, plan, status string) (*User, error
 func (c *ControlDB) GetUser(id string) (*User, error) {
 	u := &User{}
 	err := c.db.QueryRow(
-		`SELECT id, email, plan, status, created_at FROM users WHERE id = ?`, id,
-	).Scan(&u.ID, &u.Email, &u.Plan, &u.Status, &u.CreatedAt)
+		`SELECT id, email, plan, status, license_status, entitlements, license_synced_at, created_at FROM users WHERE id = ?`, id,
+	).Scan(&u.ID, &u.Email, &u.Plan, &u.Status, &u.LicenseStatus, &u.Entitlements, &u.LicenseSyncedAt, &u.CreatedAt)
 	if err == sql.ErrNoRows {
 		return nil, nil
 	}
