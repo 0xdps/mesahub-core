@@ -25,9 +25,8 @@ type Config struct {
 	SessionSecret      string
 	ControlPlaneSecret string // secret for control→template internal callbacks; required in control mode
 
-	// Redis — detected by presence; nil behaviour handled by cache.NoopClient
-	RedisURL  string
-	CacheMode string // off | local | redis (legacy aliases: none | in-memory | both)
+	// Redis — cache is Redis-backed when REDIS_URL is set, no-op otherwise.
+	RedisURL string
 
 	// Control-mode extras (only validated when Mode == ModeControl)
 	CORSOrigins string
@@ -52,7 +51,6 @@ func Load() (*Config, error) {
 		SessionSecret:           os.Getenv("SESSION_SECRET"),
 		ControlPlaneSecret:      os.Getenv("CONTROL_PLANE_SECRET"),
 		RedisURL:                os.Getenv("REDIS_URL"),
-		CacheMode:               os.Getenv("CACHE_MODE"),
 		CORSOrigins:             strEnv("CORS_ALLOWED_ORIGINS", ""),
 		MaxVolumeUsagePct:       intEnv("MAX_VOLUME_USAGE_PERCENT", 85),
 		MaxSQLLength:            intEnv("MAX_SQL_LENGTH", 100_000),
@@ -78,31 +76,6 @@ func Load() (*Config, error) {
 	}
 	if os.Getenv("FILE_TOKEN_SIGNING_SECRET") == "" {
 		return nil, fmt.Errorf("FILE_TOKEN_SIGNING_SECRET is required")
-	}
-
-	// In control mode we default to local cache unless explicitly set.
-	if cfg.Mode == ModeControl && cfg.CacheMode == "" {
-		cfg.CacheMode = "local"
-	}
-
-	// Validate and normalize CACHE_MODE.
-	// Supported values: off | local | redis.
-	// Legacy aliases remain accepted for backward compatibility:
-	//   none -> off, in-memory -> local.
-	// The legacy 'both' mode remains available.
-	switch cfg.CacheMode {
-	case "", "off", "local", "redis", "both":
-		// accepted as-is
-	case "none":
-		cfg.CacheMode = "off"
-	case "in-memory":
-		cfg.CacheMode = "local"
-	default:
-		return nil, fmt.Errorf("CACHE_MODE must be one of: off, local, redis (legacy: none, in-memory, both) — got %q", cfg.CacheMode)
-	}
-
-	if (cfg.CacheMode == "redis" || cfg.CacheMode == "both") && cfg.RedisURL == "" {
-		return nil, fmt.Errorf("REDIS_URL is required when CACHE_MODE=%s", cfg.CacheMode)
 	}
 
 	return cfg, nil

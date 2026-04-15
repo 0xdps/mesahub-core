@@ -55,18 +55,14 @@ func main() {
 		Msg("sqlite-hub server starting")
 
 	// ── Cache ─────────────────────────────────────────────────────────────────
-	cacheClient, err := cache.New(cfg.CacheMode, cfg.RedisURL)
+	cacheClient, err := cache.New(cfg.RedisURL)
 	if err != nil {
 		log.Fatal().Err(err).Msg("cache init failed")
 	}
 	{
-		mode := cfg.CacheMode
-		if mode == "" {
-			if cfg.RedisURL != "" {
-				mode = cache.ModeRedis
-			} else {
-				mode = cache.ModeOff
-			}
+		mode := cache.ModeOff
+		if cfg.RedisURL != "" {
+			mode = cache.ModeRedis
 		}
 		log.Info().Str("mode", mode).Bool("available", cacheClient.Available()).Msg("cache ready")
 	}
@@ -235,6 +231,7 @@ func main() {
 			log.Fatal().Err(err).Str("data_path", cfg.DataPath).Msg("control DB open failed")
 		}
 		defer cdb.Close()
+		auth.SetControlDB(cdb)
 
 		// Register "control" in registry.db so the standard query/exec handlers
 		// can serve POST /api/db/control/query and /api/db/control/exec.

@@ -18,19 +18,41 @@ import (
 	"github.com/0xdps/sqlite-hub/server/internal/telemetry"
 )
 
+// rateLimitPerMinute is the maximum number of exec/query requests per API key
+// per minute when Redis is available. Admin requests are not rate-limited.
+const rateLimitPerMinute = 600
+
 // SQL classifiers (case-insensitive prefix match).
 var (
 	readSQLPat  = regexp.MustCompile(`(?i)^\s*(SELECT|WITH|VALUES|EXPLAIN|PRAGMA\s+\w+\s*([^=]|$))`)
 	writeSQLPat = regexp.MustCompile(`(?i)^\s*(INSERT|UPDATE|DELETE|DROP|ALTER|CREATE|ATTACH|DETACH|REPLACE|UPSERT|PRAGMA\s+\w+\s*=)`)
 )
 
+// classifySQL classifies a potentially multi-statement SQL batch.
+// It splits on semicolons and returns "write" if ANY statement looks like a
+// write, "read" if all recognisable statements are reads, and "unknown"
+// otherwise. This prevents a batch like "SELECT 1; DROP TABLE users" from
+// being routed down the read-only path.
 func classifySQL(s string) string {
-	trimmed := strings.TrimSpace(s)
-	if readSQLPat.MatchString(trimmed) {
-		return "read"
-	}
-	if writeSQLPat.MatchString(trimmed) {
+	parts := strings.Split(s, ";")
+	hasRead := false
+	for _, p := range parts {
+		trimmed := strings.TrimSpace(p)
+		if trimmed == "" {
+			continue
+		}
+		if writeSQLPat.MatchString(trimmed) {
+			return "write"
+		}
+		if readSQLPat.MatchString(trimmed) {
+			hasRead = true
+			continue
+		}
+		// Unknown prefix — treat conservatively as write.
 		return "write"
+	}
+	if hasRead {
+		return "read"
 	}
 	return "unknown"
 }
@@ -59,9 +81,18 @@ func (h *ExecHandler) Exec(w http.ResponseWriter, r *http.Request) {
 		ErrorJSON(w, http.StatusNotFound, "Database not found")
 		return
 	}
-	if code, msg := auth.AuthorizeDB(r, h.cfg, h.cache, rec); code != 0 {
+	code, msg, kv := auth.AuthorizeDBWithKey(r, h.cfg, h.cache, rec)
+	if code != 0 {
 		ErrorJSON(w, code, msg)
 		return
+	}
+	// Rate-limit API key requests (no-op when Redis is unavailable).
+	if kv != nil {
+		count, _ := h.cache.IncrRateLimit(r.Context(), kv.KeyID, time.Minute)
+		if count > rateLimitPerMinute {
+			ErrorJSON(w, http.StatusTooManyRequests, "rate limit exceeded")
+			return
+		}
 	}
 
 	var body struct {

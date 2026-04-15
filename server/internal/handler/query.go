@@ -57,9 +57,18 @@ func (h *QueryHandler) Query(w http.ResponseWriter, r *http.Request) {
 		ErrorJSON(w, http.StatusNotFound, "Database not found")
 		return
 	}
-	if code, msg := auth.AuthorizeDB(r, h.cfg, h.cache, rec); code != 0 {
+	code, msg, kv := auth.AuthorizeDBWithKey(r, h.cfg, h.cache, rec)
+	if code != 0 {
 		ErrorJSON(w, code, msg)
 		return
+	}
+	// Rate-limit API key requests (no-op when Redis is unavailable).
+	if kv != nil {
+		count, _ := h.cache.IncrRateLimit(r.Context(), kv.KeyID, time.Minute)
+		if count > rateLimitPerMinute {
+			ErrorJSON(w, http.StatusTooManyRequests, "rate limit exceeded")
+			return
+		}
 	}
 
 	var body struct {

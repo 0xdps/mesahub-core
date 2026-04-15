@@ -28,6 +28,7 @@ PRAGMA foreign_keys=ON;
 CREATE TABLE IF NOT EXISTS users (
   id          TEXT PRIMARY KEY,
   email       TEXT NOT NULL UNIQUE,
+	name                TEXT,
   plan                TEXT NOT NULL DEFAULT 'free',
   status              TEXT NOT NULL DEFAULT 'active',
   license_status      TEXT DEFAULT '',
@@ -125,18 +126,76 @@ CREATE UNIQUE INDEX IF NOT EXISTS idx_buckets_slug ON buckets(slug) WHERE slug !
 CREATE INDEX IF NOT EXISTS idx_api_keys_user_id  ON api_keys(user_id);
 CREATE INDEX IF NOT EXISTS idx_api_keys_hash     ON api_keys(key_hash);
 CREATE INDEX IF NOT EXISTS idx_usage_user_period ON usage(user_id, period_year, period_month);
-`
 
-// migrations is intentionally empty — this is a fresh-schema deployment.
-// All schema objects are declared in the schema const above.
-var migrations = []string{
-	// Add slug column to databases and buckets if not present (added after initial deploy).
-	`ALTER TABLE databases ADD COLUMN slug TEXT NOT NULL DEFAULT ''`,
-	`ALTER TABLE buckets  ADD COLUMN slug TEXT NOT NULL DEFAULT ''`,
-	`ALTER TABLE users ADD COLUMN license_status TEXT DEFAULT ''`,
-	`ALTER TABLE users ADD COLUMN entitlements TEXT DEFAULT '{}'`,
-	`ALTER TABLE users ADD COLUMN license_synced_at TEXT`,
-}
+-- ── Billing tables ────────────────────────────────────────────────────────────
+-- These tables are declared here so that control.db is fully initialised on
+-- first process start.  They are queried exclusively by the control app over
+-- HTTP; the Go server only creates them.
+
+-- NubeAuth plan catalog.  Populated by syncCatalog() and kept current via
+-- plan.* webhook events.  slug matches the value stored in users.plan.
+CREATE TABLE IF NOT EXISTS plans (
+  plan_id       TEXT PRIMARY KEY,
+  slug          TEXT NOT NULL UNIQUE,
+  name          TEXT NOT NULL,
+  description   TEXT,
+  display_order INTEGER NOT NULL DEFAULT 0,
+  features      TEXT    NOT NULL DEFAULT '[]',
+  is_deleted    INTEGER NOT NULL DEFAULT 0,
+  synced_at     TEXT    NOT NULL DEFAULT (datetime('now'))
+);
+
+-- One or more prices per plan (monthly, yearly, one-time).
+-- price_id is passed to payment.createCheckout().
+CREATE TABLE IF NOT EXISTS prices (
+  price_id      TEXT PRIMARY KEY,
+  plan_id       TEXT NOT NULL REFERENCES plans(plan_id) ON DELETE CASCADE,
+  billing_type  TEXT NOT NULL,
+  interval      TEXT,
+  amount_cents  INTEGER NOT NULL,
+  currency      TEXT    NOT NULL DEFAULT 'usd',
+  trial_enabled INTEGER NOT NULL DEFAULT 0,
+  trial_days    INTEGER,
+  is_active     INTEGER NOT NULL DEFAULT 1,
+  synced_at     TEXT    NOT NULL DEFAULT (datetime('now'))
+);
+
+CREATE INDEX IF NOT EXISTS idx_prices_plan_id ON prices (plan_id);
+
+-- Audit trail for all received NubeAuth webhook deliveries.
+-- delivery_id is the UUID from the X-Nube-Delivery header / event.id.
+CREATE TABLE IF NOT EXISTS webhook_log (
+  delivery_id  TEXT PRIMARY KEY,
+  event        TEXT NOT NULL,
+  app_id       TEXT,
+  payload      TEXT NOT NULL,
+  processed_at TEXT NOT NULL DEFAULT (datetime('now')),
+  error        TEXT
+);
+
+CREATE INDEX IF NOT EXISTS idx_webhook_log_event ON webhook_log (event);
+
+-- Latest subscription state per user, fed by webhooks and cancel/resume API
+-- actions.  Billing UI reads from this for fast, stable status.
+CREATE TABLE IF NOT EXISTS subscriptions (
+  user_id              TEXT PRIMARY KEY,
+  subscription_id      TEXT,
+  plan_slug            TEXT,
+  status               TEXT NOT NULL DEFAULT 'active',
+  license_status       TEXT NOT NULL DEFAULT 'active',
+  billing_interval     TEXT,
+  period_end           TEXT,
+  cancel_at_period_end INTEGER NOT NULL DEFAULT 0,
+  last_event           TEXT,
+  last_event_at        TEXT,
+  last_cancel_reason   TEXT,
+  last_cancel_comment  TEXT,
+  updated_at           TEXT NOT NULL DEFAULT (datetime('now'))
+);
+
+CREATE INDEX IF NOT EXISTS idx_subscriptions_status
+  ON subscriptions (status, cancel_at_period_end);
+`
 
 // ── DB wrapper ────────────────────────────────────────────────────────────────
 
@@ -158,19 +217,6 @@ func Open(dataPath string) (*ControlDB, error) {
 		db.Close()
 		return nil, fmt.Errorf("control: schema: %w", err)
 	}
-	// Run additive migrations. "duplicate column" errors are expected on
-	// already-migrated databases and are silently skipped. Any other error
-	// is fatal — it indicates a genuine schema inconsistency.
-	for _, m := range migrations {
-		if _, err := db.Exec(m); err != nil {
-			msg := err.Error()
-			if !strings.Contains(msg, "duplicate column") &&
-				!strings.Contains(msg, "already exists") {
-				db.Close()
-				return nil, fmt.Errorf("control: migration failed: %w", err)
-			}
-		}
-	}
 	return &ControlDB{db: db}, nil
 }
 
@@ -183,6 +229,7 @@ func (c *ControlDB) Close() error { return c.db.Close() }
 type User struct {
 	ID              string  `json:"id"`
 	Email           string  `json:"email"`
+	Name            *string `json:"name,omitempty"`
 	Plan            string  `json:"plan"`
 	Status          string  `json:"status"`
 	LicenseStatus   *string `json:"license_status,omitempty"`
@@ -254,18 +301,19 @@ type APIKey struct {
 
 // UpsertUser inserts or updates the user identified by nubeID.
 // Returns the stored user record.
-func (c *ControlDB) UpsertUser(nubeID, email, plan, status, licenseStatus, entitlements, licenseSyncedAt string) (*User, error) {
+func (c *ControlDB) UpsertUser(nubeID, email string, name *string, plan, status, licenseStatus, entitlements, licenseSyncedAt string) (*User, error) {
 	_, err := c.db.Exec(`
-		INSERT INTO users (id, email, plan, status, license_status, entitlements, license_synced_at)
-		VALUES (?, ?, ?, ?, ?, ?, ?)
+		INSERT INTO users (id, email, name, plan, status, license_status, entitlements, license_synced_at)
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?)
 		ON CONFLICT(id) DO UPDATE SET
 		  email             = excluded.email,
+		  name              = excluded.name,
 		  plan              = excluded.plan,
 		  status            = excluded.status,
 		  license_status    = excluded.license_status,
 		  entitlements      = excluded.entitlements,
 		  license_synced_at = excluded.license_synced_at`,
-		nubeID, email, plan, status, licenseStatus, entitlements, licenseSyncedAt)
+		nubeID, email, name, plan, status, licenseStatus, entitlements, licenseSyncedAt)
 	if err != nil {
 		return nil, fmt.Errorf("control: upsert user: %w", err)
 	}
@@ -276,8 +324,8 @@ func (c *ControlDB) UpsertUser(nubeID, email, plan, status, licenseStatus, entit
 func (c *ControlDB) GetUser(id string) (*User, error) {
 	u := &User{}
 	err := c.db.QueryRow(
-		`SELECT id, email, plan, status, license_status, entitlements, license_synced_at, created_at FROM users WHERE id = ?`, id,
-	).Scan(&u.ID, &u.Email, &u.Plan, &u.Status, &u.LicenseStatus, &u.Entitlements, &u.LicenseSyncedAt, &u.CreatedAt)
+		`SELECT id, email, name, plan, status, license_status, entitlements, license_synced_at, created_at FROM users WHERE id = ?`, id,
+	).Scan(&u.ID, &u.Email, &u.Name, &u.Plan, &u.Status, &u.LicenseStatus, &u.Entitlements, &u.LicenseSyncedAt, &u.CreatedAt)
 	if err == sql.ErrNoRows {
 		return nil, nil
 	}
@@ -485,6 +533,53 @@ func (c *ControlDB) GetAPIKeyHash(id string) (string, error) {
 	var h string
 	err := c.db.QueryRow(`SELECT key_hash FROM api_keys WHERE id = ?`, id).Scan(&h)
 	return h, err
+}
+
+// APIKeyAuthRow holds the minimal fields needed to authenticate an API key.
+type APIKeyAuthRow struct {
+	KeyID  string
+	UserID string
+	Scopes string // raw JSON
+}
+
+// LookupAPIKeyByHash resolves an active API key by its SHA-256 key_hash.
+// It also verifies that the owning user is active.
+// Returns nil, nil when no matching key is found.
+func (c *ControlDB) LookupAPIKeyByHash(keyHash string) (*APIKeyAuthRow, error) {
+	r := &APIKeyAuthRow{}
+	err := c.db.QueryRow(`
+		SELECT k.id, k.user_id, k.scopes
+		FROM api_keys k
+		JOIN users u ON u.id = k.user_id
+		WHERE k.key_hash = ? AND k.status = 'active' AND u.status = 'active'`,
+		keyHash).Scan(&r.KeyID, &r.UserID, &r.Scopes)
+	if err == sql.ErrNoRows {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, err
+	}
+	return r, nil
+}
+
+// StampAPIKeyLastUsed updates last_used_at for the given key ID.
+// Best-effort: callers may safely ignore the returned error.
+func (c *ControlDB) StampAPIKeyLastUsed(id string) error {
+	_, err := c.db.Exec(`UPDATE api_keys SET last_used_at = datetime('now') WHERE id = ?`, id)
+	return err
+}
+
+// LookupBucketOwner returns the user_id for an active bucket identified by slug.
+// Returns "", nil when no matching bucket is found.
+func (c *ControlDB) LookupBucketOwner(slug string) (string, error) {
+	var userID string
+	err := c.db.QueryRow(
+		`SELECT user_id FROM buckets WHERE slug = ? AND status = 'active'`, slug,
+	).Scan(&userID)
+	if err == sql.ErrNoRows {
+		return "", nil
+	}
+	return userID, err
 }
 
 // ── Usage ops ─────────────────────────────────────────────────────────────────

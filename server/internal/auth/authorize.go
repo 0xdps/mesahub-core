@@ -19,8 +19,20 @@ import (
 
 	"github.com/0xdps/sqlite-hub/server/internal/cache"
 	"github.com/0xdps/sqlite-hub/server/internal/config"
+	"github.com/0xdps/sqlite-hub/server/internal/control"
 	"github.com/0xdps/sqlite-hub/server/internal/db"
 )
+
+// globalControlDB is the shared ControlDB handle, set once at startup via
+// SetControlDB. When non-nil, ValidateAPIKey uses it instead of opening a
+// new sql.Open on every cache miss.
+var globalControlDB *control.ControlDB
+
+// SetControlDB provides the auth package with the shared ControlDB handle.
+// Must be called once at startup (after control.Open) before serving requests.
+func SetControlDB(cdb *control.ControlDB) {
+	globalControlDB = cdb
+}
 
 // apiKeyTTL is how long a validated API key result is cached.
 // After control revokes a key it calls DELETE /api/internal/cache/apikey/{hash}
@@ -148,45 +160,55 @@ func hasPermission(scopes []string, resourceType, slug, op string) bool {
 	return false
 }
 
-// AuthorizeDB enforces the per-DB access rules:
-//
-//  1. X-Sqlite-Hub-Admin: 1 (stamped by AdminStamper) → allowed
-//  2. DB inactive → 503
-//  3. shs_ API key: owner match + scope enforcement via hasPermission
-//     op is "read" for /query routes, "write" for /exec routes
-//  4. Otherwise → 401
-//
-// Returns HTTP status 0 and "" when access is granted.
+// AuthorizeDB enforces the per-DB access rules and also returns the validated
+// API key value (nil for admin requests). Use AuthorizeDBWithKey when you need
+// the key value (e.g. for rate limiting). AuthorizeDB discards it for callers
+// that do not need it.
 func AuthorizeDB(r *http.Request, cfg *config.Config, c cache.Client, record *db.DBRecord) (int, string) {
+	code, msg, _ := AuthorizeDBWithKey(r, cfg, c, record)
+	return code, msg
+}
+
+// AuthorizeDBWithKey is the same as AuthorizeDB but also returns the validated
+// *cache.APIKeyValue (nil for admin requests or on failure).
+func AuthorizeDBWithKey(r *http.Request, cfg *config.Config, c cache.Client, record *db.DBRecord) (int, string, *cache.APIKeyValue) {
 	if r.Header.Get(AdminSessionHeader) == "1" {
-		return 0, ""
+		return 0, "", nil
 	}
 	if record.Status != "active" {
-		return http.StatusServiceUnavailable, "This database is inactive"
+		return http.StatusServiceUnavailable, "This database is inactive", nil
 	}
 
 	bearer := extractBearer(r)
 	if bearer != "" && strings.HasPrefix(bearer, "shs_") {
 		kv, ok := ValidateAPIKey(r.Context(), c, cfg.DataPath, bearer)
 		if !ok || kv.UserID != record.Owner {
-			return http.StatusUnauthorized, "Unauthorized"
+			return http.StatusUnauthorized, "Unauthorized", nil
 		}
 		op := "read"
 		if strings.Contains(r.URL.Path, "/exec") {
 			op = "write"
 		}
 		if !hasPermission(kv.Scopes, "db", record.Name, op) {
-			return http.StatusForbidden, "This API key does not have access to this database"
+			return http.StatusForbidden, "This API key does not have access to this database", nil
 		}
-		return 0, ""
+		return 0, "", kv
 	}
 
-	return http.StatusUnauthorized, "Unauthorized"
+	return http.StatusUnauthorized, "Unauthorized", nil
 }
 
 // LookupBucket looks up a bucket's owner by its slug from control.db.
 // Returns userID and true on success.
 func LookupBucket(dataPath, slug string) (string, bool) {
+	if globalControlDB != nil {
+		userID, err := globalControlDB.LookupBucketOwner(slug)
+		if err != nil || userID == "" {
+			return "", false
+		}
+		return userID, true
+	}
+	// Fallback: open a new connection.
 	controlPath := filepath.Join(dataPath, "control.db")
 	if _, err := os.Stat(controlPath); os.IsNotExist(err) {
 		return "", false
@@ -241,6 +263,11 @@ func AuthorizeBucket(r *http.Request, cfg *config.Config, c cache.Client, bucket
 // into control.db. Called asynchronously after file uploads and deletes.
 // bucketSlug is the template-internal slug stored in buckets.slug.
 func UpdateBucketSizeInControl(dataPath, bucketSlug string, sizeBytes int64) {
+	if globalControlDB != nil {
+		_ = globalControlDB.UpdateBucketSize(bucketSlug, sizeBytes)
+		return
+	}
+	// Fallback: open a new connection.
 	controlPath := filepath.Join(dataPath, "control.db")
 	cdb, err := sql.Open("sqlite3", controlPath)
 	if err != nil {
