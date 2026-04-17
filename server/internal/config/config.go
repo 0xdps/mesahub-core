@@ -39,6 +39,8 @@ type Config struct {
 	FileMaxSizeBytes        int64
 	FileBulkDeleteMaxIDs    int
 	EnableFileProxyDelivery bool
+	EnableFiles             bool
+	EnableBuckets           bool
 	LogLevel                string
 }
 
@@ -59,6 +61,8 @@ func Load() (*Config, error) {
 		FileMaxSizeBytes:        int64(intEnv("FILE_MAX_SIZE_BYTES", 104_857_600)), // 100 MB
 		FileBulkDeleteMaxIDs:    intEnv("FILE_BULK_DELETE_MAX_IDS", 100),
 		EnableFileProxyDelivery: strEnv("ENABLE_FILE_PROXY_DELIVERY", "true") != "false",
+		EnableFiles:             strEnv("ENABLE_FILES", "false") == "true",
+		EnableBuckets:           strEnv("ENABLE_BUCKETS", "false") == "true",
 		LogLevel:                strEnv("LOG_LEVEL", "info"),
 	}
 

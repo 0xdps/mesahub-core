@@ -1,4 +1,5 @@
 import { SessionData, sessionOptions } from "@/lib/session";
+import { BUCKETS_ENABLED, FILES_ENABLED } from "@/lib/features";
 import { getIronSession } from "iron-session";
 import { NextRequest, NextResponse } from "next/server";
 
@@ -11,6 +12,10 @@ const CORS_ALLOWED_ORIGINS = (process.env.CORS_ALLOWED_ORIGINS ?? "")
 
 // These routes enforce their own resource auth (scoped API key)
 const RESOURCE_SCOPED_PATTERN = /^\/api\/(?:db|buckets)(?:\/[^/]+(?:\/.*)?)?$/;
+const DB_FILES_PAGE_PATTERN = /^\/db\/[^/]+\/files(?:\/.*)?$/;
+const DB_FILES_API_PATTERN = /^\/api\/db\/[^/]+\/(?:files|tokens\/files)(?:\/.*)?$/;
+const BUCKET_PAGE_PATTERN = /^\/buckets(?:\/.*)?$/;
+const BUCKET_API_PATTERN = /^\/api\/buckets(?:\/.*)?$/;
 
 // Public file shortlink pattern: /{dbName}/file/{fileId}
 const FILE_SHORTLINK_PATTERN = /^\/[^/]+\/file\/[^/]+$/;
@@ -57,6 +62,20 @@ export async function middleware(req: NextRequest) {
   // Strip any externally supplied admin-session header to prevent forgery
   const forwarded = new Headers(req.headers);
   forwarded.delete(ADMIN_SESSION_HEADER);
+
+  if (!FILES_ENABLED && (DB_FILES_PAGE_PATTERN.test(rewrittenPathname) || DB_FILES_API_PATTERN.test(rewrittenPathname) || FILE_SHORTLINK_PATTERN.test(rewrittenPathname))) {
+    if (rewrittenPathname.startsWith("/api/")) {
+      return NextResponse.json({ error: "Files are temporarily disabled" }, { status: 404 });
+    }
+    return new NextResponse(null, { status: 404 });
+  }
+
+  if (!BUCKETS_ENABLED && (BUCKET_PAGE_PATTERN.test(rewrittenPathname) || BUCKET_API_PATTERN.test(rewrittenPathname))) {
+    if (rewrittenPathname.startsWith("/api/")) {
+      return NextResponse.json({ error: "Buckets are temporarily disabled" }, { status: 404 });
+    }
+    return new NextResponse(null, { status: 404 });
+  }
 
   if ((rewrittenPathname === "/api" || rewrittenPathname.startsWith("/api/")) && req.method === "OPTIONS") {
     return applyCorsHeaders(req, new NextResponse(null, { status: 204 }));

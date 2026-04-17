@@ -1,5 +1,6 @@
 "use client";
 
+import { BUCKETS_ENABLED } from "@/lib/features";
 import { useState, useMemo, useTransition } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
@@ -763,7 +764,7 @@ function TabBar({
 }) {
   const tabs: { id: Tab; label: string; count: number }[] = [
     { id: "databases", label: "Databases", count: dbCount },
-    { id: "buckets", label: "Buckets", count: bucketCount },
+    ...(BUCKETS_ENABLED ? [{ id: "buckets" as Tab, label: "Buckets", count: bucketCount }] : []),
     { id: "system", label: "System", count: systemCount },
   ];
 
@@ -876,11 +877,15 @@ export function HomeClient({
                 <span className="text-zinc-300 font-medium">{activeDbs.length}</span>{" "}
                 active {activeDbs.length === 1 ? "database" : "databases"}
               </span>
-              <span className="text-zinc-800">·</span>
-              <span className="text-xs text-zinc-500">
-                <span className="text-zinc-300 font-medium">{activeBuckets.length}</span>{" "}
-                active {activeBuckets.length === 1 ? "bucket" : "buckets"}
-              </span>
+              {BUCKETS_ENABLED && (
+                <>
+                  <span className="text-zinc-800">·</span>
+                  <span className="text-xs text-zinc-500">
+                    <span className="text-zinc-300 font-medium">{activeBuckets.length}</span>{" "}
+                    active {activeBuckets.length === 1 ? "bucket" : "buckets"}
+                  </span>
+                </>
+              )}
             </div>
           )}
 
@@ -892,7 +897,7 @@ export function HomeClient({
                 active={tab}
                 onChange={handleTabChange}
                 dbCount={userDbs.length}
-                bucketCount={buckets.length}
+                bucketCount={BUCKETS_ENABLED ? buckets.length : 0}
                 systemCount={Math.max(systemDbs.length, SYSTEM_DB_NAMES.length)}
               />
 
@@ -918,7 +923,7 @@ export function HomeClient({
                   </button>
                 )}
 
-                {tab === "buckets" && (
+                {BUCKETS_ENABLED && tab === "buckets" && (
                   <button
                     type="button"
                     onClick={() => setShowBucketModal(true)}
@@ -941,7 +946,7 @@ export function HomeClient({
                 onNew={() => setShowDbModal(true)}
               />
             )}
-            {tab === "buckets" && (
+            {BUCKETS_ENABLED && tab === "buckets" && (
               <BucketList
                 buckets={buckets}
                 query={query}
@@ -960,7 +965,7 @@ export function HomeClient({
           onCreated={handleCreated}
         />
       )}
-      {showBucketModal && (
+      {BUCKETS_ENABLED && showBucketModal && (
         <CreateBucketModal
           users={users}
           onClose={() => setShowBucketModal(false)}

@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server";
+import { FILES_ENABLED } from "@/lib/features";
 
 export const runtime = "nodejs";
 
@@ -9,7 +10,7 @@ export async function GET() {
       title: "SQLite Hub API",
       version: "1.0.0",
       description:
-        "SQLite Hub API for database execution and file storage. Versioned base path /api/v1 is supported.",
+        `SQLite Hub API for database execution${FILES_ENABLED ? " and file storage" : ""}. Versioned base path /api/v1 is supported.`,
     },
     servers: [
       { url: "/api", description: "Current API base" },
@@ -51,55 +52,57 @@ export async function GET() {
           responses: { "200": { description: "Result" } },
         },
       },
-      "/db/{name}/files": {
-        get: {
-          summary: "List files",
-          security: [{ bearerAuth: [] }],
-          parameters: [{ name: "name", in: "path", required: true, schema: { type: "string" } }],
-          responses: { "200": { description: "OK" } },
+      ...(FILES_ENABLED ? {
+        "/db/{name}/files": {
+          get: {
+            summary: "List files",
+            security: [{ bearerAuth: [] }],
+            parameters: [{ name: "name", in: "path", required: true, schema: { type: "string" } }],
+            responses: { "200": { description: "OK" } },
+          },
+          post: {
+            summary: "Upload file",
+            security: [{ bearerAuth: [] }],
+            parameters: [{ name: "name", in: "path", required: true, schema: { type: "string" } }],
+            responses: { "201": { description: "Created" } },
+          },
         },
-        post: {
-          summary: "Upload file",
-          security: [{ bearerAuth: [] }],
-          parameters: [{ name: "name", in: "path", required: true, schema: { type: "string" } }],
-          responses: { "201": { description: "Created" } },
+        "/db/{name}/files/{id}": {
+          get: {
+            summary: "Download/View file",
+            parameters: [
+              { name: "name", in: "path", required: true, schema: { type: "string" } },
+              { name: "id", in: "path", required: true, schema: { type: "string" } },
+            ],
+            responses: { "200": { description: "OK" } },
+          },
+          delete: {
+            summary: "Delete file",
+            security: [{ bearerAuth: [] }],
+            parameters: [
+              { name: "name", in: "path", required: true, schema: { type: "string" } },
+              { name: "id", in: "path", required: true, schema: { type: "string" } },
+            ],
+            responses: { "204": { description: "Deleted" } },
+          },
         },
-      },
-      "/db/{name}/files/{id}": {
-        get: {
-          summary: "Download/View file",
-          parameters: [
-            { name: "name", in: "path", required: true, schema: { type: "string" } },
-            { name: "id", in: "path", required: true, schema: { type: "string" } },
-          ],
-          responses: { "200": { description: "OK" } },
+        "/db/{name}/tokens/files": {
+          post: {
+            summary: "Create read-only file access token",
+            security: [{ bearerAuth: [] }],
+            parameters: [{ name: "name", in: "path", required: true, schema: { type: "string" } }],
+            responses: { "200": { description: "OK" } },
+          },
         },
-        delete: {
-          summary: "Delete file",
-          security: [{ bearerAuth: [] }],
-          parameters: [
-            { name: "name", in: "path", required: true, schema: { type: "string" } },
-            { name: "id", in: "path", required: true, schema: { type: "string" } },
-          ],
-          responses: { "204": { description: "Deleted" } },
+        "/db/{name}/tokens/files/revoke": {
+          post: {
+            summary: "Revoke file access token",
+            security: [{ bearerAuth: [] }],
+            parameters: [{ name: "name", in: "path", required: true, schema: { type: "string" } }],
+            responses: { "200": { description: "Revoked" } },
+          },
         },
-      },
-      "/db/{name}/tokens/files": {
-        post: {
-          summary: "Create read-only file access token",
-          security: [{ bearerAuth: [] }],
-          parameters: [{ name: "name", in: "path", required: true, schema: { type: "string" } }],
-          responses: { "200": { description: "OK" } },
-        },
-      },
-      "/db/{name}/tokens/files/revoke": {
-        post: {
-          summary: "Revoke file access token",
-          security: [{ bearerAuth: [] }],
-          parameters: [{ name: "name", in: "path", required: true, schema: { type: "string" } }],
-          responses: { "200": { description: "Revoked" } },
-        },
-      },
+      } : {}),
       "/maintenance/cleanup": {
         post: {
           summary: "Cleanup expired files and token revocations",

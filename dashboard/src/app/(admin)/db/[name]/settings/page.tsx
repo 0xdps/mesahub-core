@@ -1,5 +1,6 @@
 "use client";
 
+import { FILES_ENABLED } from "@/lib/features";
 import Link from "next/link";
 import { use, useCallback, useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
@@ -128,9 +129,11 @@ export default function DbSettingsPage({
             <Link href="/" className="text-neutral-400 hover:text-white">
               ← Back to dashboard
             </Link>
-            <Link href={`/db/${name}/files`} className="text-emerald-400 hover:text-emerald-300">
-              Files
-            </Link>
+            {FILES_ENABLED && (
+              <Link href={`/db/${name}/files`} className="text-emerald-400 hover:text-emerald-300">
+                Files
+              </Link>
+            )}
             <Link href={`/db/${name}`} className="text-blue-400 hover:text-blue-300">
               Browse
             </Link>

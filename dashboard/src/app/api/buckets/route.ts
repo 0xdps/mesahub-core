@@ -1,5 +1,6 @@
 import { randomUUID } from "crypto";
 
+import { BUCKETS_ENABLED } from "@/lib/features";
 import { goFetchAdmin } from "@/lib/go-api";
 import { NextResponse } from "next/server";
 
@@ -17,6 +18,9 @@ function isValidBucketName(name: string) {
 }
 
 export async function POST(req: Request) {
+  if (!BUCKETS_ENABLED) {
+    return NextResponse.json({ error: "Buckets are temporarily disabled" }, { status: 404 });
+  }
   const body = (await req.json().catch(() => null)) as CreateBucketBody | null;
 
   const userId = typeof body?.userId === "string" ? body.userId.trim() : "";

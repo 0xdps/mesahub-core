@@ -167,23 +167,25 @@ func main() {
 	// ── Per-DB data endpoints (auth handled inside each handler) ──────────────
 	r.Post("/api/db/{name}/query", queryH.Query)
 	r.Post("/api/db/{name}/exec", execH.Exec)
-	r.Get("/api/db/{name}/files", filesH.List)
-	r.Post("/api/db/{name}/files", filesH.Upload)
-	// NOTE: presign/batch and bulk-delete must be registered before {id} routes
-	// so chi does not treat "presign" or "bulk-delete" as a file ID.
-	r.Post("/api/db/{name}/files/presign/batch", filesH.PresignBatch)
-	r.Post("/api/db/{name}/files/bulk-delete", filesH.BulkDeleteFiles)
-	r.Head("/api/db/{name}/files/{id}", filesH.HeadFile)
-	r.Get("/api/db/{name}/files/{id}", filesH.Download)
-	r.Delete("/api/db/{name}/files/{id}", filesH.DeleteFile)
-	r.Get("/api/db/{name}/files/{id}/meta", filesH.Meta)
-	r.Post("/api/db/{name}/files/{id}/presign", filesH.PresignFile)
-	r.Post("/api/db/{name}/tokens/files", tokensH.CreateToken)
-	r.Post("/api/db/{name}/tokens/files/revoke", tokensH.RevokeToken)
+	if cfg.EnableFiles {
+		r.Get("/api/db/{name}/files", filesH.List)
+		r.Post("/api/db/{name}/files", filesH.Upload)
+		// NOTE: presign/batch and bulk-delete must be registered before {id} routes
+		// so chi does not treat "presign" or "bulk-delete" as a file ID.
+		r.Post("/api/db/{name}/files/presign/batch", filesH.PresignBatch)
+		r.Post("/api/db/{name}/files/bulk-delete", filesH.BulkDeleteFiles)
+		r.Head("/api/db/{name}/files/{id}", filesH.HeadFile)
+		r.Get("/api/db/{name}/files/{id}", filesH.Download)
+		r.Delete("/api/db/{name}/files/{id}", filesH.DeleteFile)
+		r.Get("/api/db/{name}/files/{id}/meta", filesH.Meta)
+		r.Post("/api/db/{name}/files/{id}/presign", filesH.PresignFile)
+		r.Post("/api/db/{name}/tokens/files", tokensH.CreateToken)
+		r.Post("/api/db/{name}/tokens/files/revoke", tokensH.RevokeToken)
 
-	// Public file shortlink — no admin session required, only a valid file token.
-	// Registered outside the admin group; auth is enforced inside the handler.
-	r.Get("/{dbName}/file/{id}", filesH.FileShortlink)
+		// Public file shortlink — no admin session required, only a valid file token.
+		// Registered outside the admin group; auth is enforced inside the handler.
+		r.Get("/{dbName}/file/{id}", filesH.FileShortlink)
+	}
 
 	// Legacy /api/v1/* prefix strip — forward to the same router without the prefix.
 	// This provides backwards compatibility for older clients that used /api/v1/.
@@ -205,23 +207,27 @@ func main() {
 	if cfg.Mode == config.ModeControl {
 		r.Post("/api/query/{ref}", queryH.QueryByUUID)
 		r.Post("/api/exec/{ref}", execH.ExecByUUID)
-		r.Get("/api/files/{ref}", filesH.ListByUUID)
-		r.Post("/api/files/{ref}", filesH.UploadByUUID)
-		r.Head("/api/files/{ref}/{id}", filesH.HeadFileByUUID)
-		r.Get("/api/files/{ref}/{id}", filesH.DownloadByUUID)
-		r.Delete("/api/files/{ref}/{id}", filesH.DeleteFileByUUID)
+		if cfg.EnableFiles {
+			r.Get("/api/files/{ref}", filesH.ListByUUID)
+			r.Post("/api/files/{ref}", filesH.UploadByUUID)
+			r.Head("/api/files/{ref}/{id}", filesH.HeadFileByUUID)
+			r.Get("/api/files/{ref}/{id}", filesH.DownloadByUUID)
+			r.Delete("/api/files/{ref}/{id}", filesH.DeleteFileByUUID)
+		}
 
-		// Bucket file routes — auth via shs_ API key scope (bucket:* or bucket:<name>).
-		// NOTE: presign/batch and bulk-delete must be registered before {id} routes.
-		r.Get("/api/buckets/{name}/files", bucketFilesH.List)
-		r.Post("/api/buckets/{name}/files", bucketFilesH.Upload)
-		r.Post("/api/buckets/{name}/files/presign/batch", bucketFilesH.PresignBatch)
-		r.Post("/api/buckets/{name}/files/bulk-delete", bucketFilesH.BulkDeleteFiles)
-		r.Head("/api/buckets/{name}/files/{id}", bucketFilesH.HeadFile)
-		r.Get("/api/buckets/{name}/files/{id}", bucketFilesH.Download)
-		r.Delete("/api/buckets/{name}/files/{id}", bucketFilesH.DeleteFile)
-		r.Get("/api/buckets/{name}/files/{id}/meta", bucketFilesH.Meta)
-		r.Post("/api/buckets/{name}/files/{id}/presign", bucketFilesH.PresignFile)
+		if cfg.EnableFiles && cfg.EnableBuckets {
+			// Bucket file routes — auth via shs_ API key scope (bucket:* or bucket:<name>).
+			// NOTE: presign/batch and bulk-delete must be registered before {id} routes.
+			r.Get("/api/buckets/{name}/files", bucketFilesH.List)
+			r.Post("/api/buckets/{name}/files", bucketFilesH.Upload)
+			r.Post("/api/buckets/{name}/files/presign/batch", bucketFilesH.PresignBatch)
+			r.Post("/api/buckets/{name}/files/bulk-delete", bucketFilesH.BulkDeleteFiles)
+			r.Head("/api/buckets/{name}/files/{id}", bucketFilesH.HeadFile)
+			r.Get("/api/buckets/{name}/files/{id}", bucketFilesH.Download)
+			r.Delete("/api/buckets/{name}/files/{id}", bucketFilesH.DeleteFile)
+			r.Get("/api/buckets/{name}/files/{id}/meta", bucketFilesH.Meta)
+			r.Post("/api/buckets/{name}/files/{id}/presign", bucketFilesH.PresignFile)
+		}
 
 		// Initialise control.db schema so that ValidateAPIKey can read it.
 		// The control plane writes user/key data here via the admin exec endpoint.

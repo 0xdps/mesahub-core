@@ -1,5 +1,6 @@
 export const dynamic = "force-dynamic";
 
+import { BUCKETS_ENABLED } from "@/lib/features";
 import { goFetchAdmin } from "@/lib/go-api";
 import { HomeClient } from "./home-client";
 
@@ -40,13 +41,15 @@ export default async function DashboardPage() {
   const [dbsRes, metricsRes, bucketsRes, usersRes] = await Promise.all([
     goFetchAdmin("/api/db").catch(() => null),
     goFetchAdmin("/api/metrics").catch(() => null),
-    goFetchAdmin("/api/system/db/control/query", {
-      method: "POST",
-      body: JSON.stringify({
-        sql: `SELECT id, user_id, name, display_name, description, status, size_bytes, created_at
-              FROM buckets WHERE status != 'deleted' ORDER BY created_at DESC LIMIT 500`,
-      }),
-    }).catch(() => null),
+    BUCKETS_ENABLED
+      ? goFetchAdmin("/api/system/db/control/query", {
+          method: "POST",
+          body: JSON.stringify({
+            sql: `SELECT id, user_id, name, display_name, description, status, size_bytes, created_at
+                  FROM buckets WHERE status != 'deleted' ORDER BY created_at DESC LIMIT 500`,
+          }),
+        }).catch(() => null)
+      : Promise.resolve(null),
     goFetchAdmin("/api/system/db/control/query", {
       method: "POST",
       body: JSON.stringify({
