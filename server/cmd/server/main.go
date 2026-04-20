@@ -118,6 +118,7 @@ func main() {
 	dbH := handler.NewDBHandler(cfg, pool, registry)
 	queryH := handler.NewQueryHandler(cfg, pool, registry, cacheClient, tel)
 	execH := handler.NewExecHandler(cfg, pool, wq, registry, cacheClient, tel)
+	restH := handler.NewRestHandler(cfg, pool, wq, registry, cacheClient, tel)
 	filesH := handler.NewFilesHandler(cfg, registry, fileStorage, cacheClient)
 	tokensH := handler.NewTokensHandler(cfg, registry, cacheClient)
 	metricsH := handler.NewMetricsHandler(cfg, registry, fileStorage, wq, tel)
@@ -167,6 +168,11 @@ func main() {
 	// ── Per-DB data endpoints (auth handled inside each handler) ──────────────
 	r.Post("/api/db/{name}/query", queryH.Query)
 	r.Post("/api/db/{name}/exec", execH.Exec)
+	// Auto-REST layer — PostgREST-style CRUD for any table.
+	r.Get("/api/db/{name}/rest/{table}", restH.Get)
+	r.Post("/api/db/{name}/rest/{table}", restH.Post)
+	r.Patch("/api/db/{name}/rest/{table}", restH.Patch)
+	r.Delete("/api/db/{name}/rest/{table}", restH.Delete)
 	if cfg.EnableFiles {
 		r.Get("/api/db/{name}/files", filesH.List)
 		r.Post("/api/db/{name}/files", filesH.Upload)
@@ -207,6 +213,11 @@ func main() {
 	if cfg.Mode == config.ModeControl {
 		r.Post("/api/query/{ref}", queryH.QueryByUUID)
 		r.Post("/api/exec/{ref}", execH.ExecByUUID)
+		// Auto-REST UUID routes.
+		r.Get("/api/rest/{ref}/{table}", restH.GetByUUID)
+		r.Post("/api/rest/{ref}/{table}", restH.PostByUUID)
+		r.Patch("/api/rest/{ref}/{table}", restH.PatchByUUID)
+		r.Delete("/api/rest/{ref}/{table}", restH.DeleteByUUID)
 		if cfg.EnableFiles {
 			r.Get("/api/files/{ref}", filesH.ListByUUID)
 			r.Post("/api/files/{ref}", filesH.UploadByUUID)

@@ -74,6 +74,9 @@ if [ "$NODE_ENV" = "development" ]; then
     handle /api/query/* {
         reverse_proxy localhost:${GO_PORT}
     }
+    handle /api/rest/* {
+        reverse_proxy localhost:${GO_PORT}
+    }
     handle /api/files/* {
         reverse_proxy localhost:${GO_PORT}
     }
@@ -217,6 +220,9 @@ EOF
         reverse_proxy localhost:${GO_PORT}
     }
     handle /api/query/* {
+        reverse_proxy localhost:${GO_PORT}
+    }
+    handle /api/rest/* {
         reverse_proxy localhost:${GO_PORT}
     }
     handle /api/files/* {
