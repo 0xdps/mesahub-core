@@ -212,7 +212,27 @@ EOF
     # ── Path-based fallback routing (standalone + Railway preview URLs) ───────
     cat >> /tmp/Caddyfile <<EOF
 
-    # Everything -> Next.js
+    # SDK data-plane routes → Go directly (bypasses Next.js auth middleware).
+    handle /api/exec/* {
+        reverse_proxy localhost:${GO_PORT}
+    }
+    handle /api/query/* {
+        reverse_proxy localhost:${GO_PORT}
+    }
+    handle /api/files/* {
+        reverse_proxy localhost:${GO_PORT}
+    }
+    handle /api/buckets/* {
+        reverse_proxy localhost:${GO_PORT}
+    }
+    handle /api/health {
+        reverse_proxy localhost:${GO_PORT}
+    }
+    handle /api/version {
+        reverse_proxy localhost:${GO_PORT}
+    }
+
+    # Everything else (dashboard UI, /api/db/*, auth routes) → Next.js
     handle {
         reverse_proxy localhost:${NEXTJS_PORT}
     }
