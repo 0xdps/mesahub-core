@@ -22,6 +22,7 @@ import (
 	"github.com/0xdps/sqlite-hub/server/internal/files"
 	"github.com/0xdps/sqlite-hub/server/internal/handler"
 	"github.com/0xdps/sqlite-hub/server/internal/middleware"
+	"github.com/0xdps/sqlite-hub/server/internal/migrate"
 	"github.com/0xdps/sqlite-hub/server/internal/queue"
 	"github.com/0xdps/sqlite-hub/server/internal/telemetry"
 )
@@ -77,6 +78,13 @@ func main() {
 		log.Fatal().Err(err).Msg("registry open failed")
 	}
 	defer registry.Close()
+
+	// ── One-time data migrations ───────────────────────────────────────────────
+	if err := registry.RunOnce("strip-prefixes", func() error {
+		return migrate.StripPrefixes(cfg.DataPath)
+	}); err != nil {
+		log.Fatal().Err(err).Msg("migration strip-prefixes failed")
+	}
 
 	// ── File storage ──────────────────────────────────────────────────────────
 	fileStorage, err := files.NewStorage(cfg.DataPath, cfg)

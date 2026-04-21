@@ -54,7 +54,7 @@ CREATE TABLE IF NOT EXISTS databases (
   id           TEXT PRIMARY KEY,
   user_id      TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
   name         TEXT NOT NULL,          -- user-visible label
-  slug         TEXT NOT NULL DEFAULT '',-- template-internal name (e.g. D-<userpart>-<dbname>)
+  slug         TEXT NOT NULL DEFAULT '',-- template-internal name (e.g. <userpart>-<dbname>)
   display_name TEXT NOT NULL,
   description  TEXT,
   instance_id  TEXT REFERENCES instances(id),
@@ -69,7 +69,7 @@ CREATE TABLE IF NOT EXISTS buckets (
   id           TEXT PRIMARY KEY,
   user_id      TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
   name         TEXT NOT NULL,          -- user-visible label
-  slug         TEXT NOT NULL DEFAULT '',-- template-internal name (e.g. B-<userpart>-<bucketname>)
+  slug         TEXT NOT NULL DEFAULT '',-- template-internal name (e.g. <userpart>-<bucketname>)
   display_name TEXT NOT NULL,
   description  TEXT,
   instance_id  TEXT REFERENCES instances(id),

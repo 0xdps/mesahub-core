@@ -21,7 +21,7 @@ import (
 
 var (
 	// nonAlnumRe matches chars not kept by sanitizeInternalName in template-names.ts:
-	// /[^A-Za-z0-9_-]/g — must include uppercase so the leading "D-" prefix is preserved.
+	// /[^A-Za-z0-9_-]/g
 	nonAlnumRe = regexp.MustCompile(`[^A-Za-z0-9_-]`)
 	// uuidRE matches a standard hyphenated UUID (case-insensitive).
 	uuidRE = regexp.MustCompile(`(?i)^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$`)
@@ -30,14 +30,14 @@ var (
 // ToTemplateName derives the template-internal database name from the control
 // plane userID and database name. Matches buildTemplateDbName in template-names.ts:
 //
-//	D-{userId with USR0 stripped, lowercased}-{dbName lowercased}
+//	{userId with USR0 stripped, lowercased}-{dbName lowercased}
 //
 // with any non-alnum/dash/underscore chars replaced by '-'.
 // Used as a fallback for rows that pre-date the slug column.
 func ToTemplateName(userID, dbName string) string {
 	userPart := strings.ToLower(strings.TrimPrefix(strings.ToLower(userID), "usr0"))
 	resName := strings.ToLower(dbName)
-	raw := "D-" + userPart + "-" + resName
+	raw := userPart + "-" + resName
 	return nonAlnumRe.ReplaceAllString(raw, "-")
 }
 

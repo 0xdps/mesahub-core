@@ -69,6 +69,11 @@ CREATE TABLE IF NOT EXISTS audit_events (
 CREATE INDEX IF NOT EXISTS idx_audit_created   ON audit_events(created_at);
 CREATE INDEX IF NOT EXISTS idx_audit_db_name   ON audit_events(db_name);
 CREATE INDEX IF NOT EXISTS idx_audit_event_type ON audit_events(event_type);
+
+CREATE TABLE IF NOT EXISTS schema_migrations (
+  name       TEXT PRIMARY KEY,
+  applied_at DATETIME DEFAULT CURRENT_TIMESTAMP
+);
 `
 
 // OpenRegistry opens (or creates) registry.db at dataPath and applies the
@@ -135,6 +140,25 @@ func migrateRegistry(db *sql.DB) error {
 
 // Close shuts down the registry connection.
 func (r *Registry) Close() error { return r.db.Close() }
+
+// RunOnce executes fn exactly once, identified by name. If name is already
+// recorded in schema_migrations, fn is skipped entirely. On success, the name
+// is inserted so subsequent calls are no-ops.
+func (r *Registry) RunOnce(name string, fn func() error) error {
+	var applied string
+	err := r.db.QueryRow(`SELECT name FROM schema_migrations WHERE name = ?`, name).Scan(&applied)
+	if err == nil {
+		return nil // already ran
+	}
+	if err != sql.ErrNoRows {
+		return fmt.Errorf("schema_migrations lookup: %w", err)
+	}
+	if err := fn(); err != nil {
+		return err
+	}
+	_, err = r.db.Exec(`INSERT INTO schema_migrations (name) VALUES (?)`, name)
+	return err
+}
 
 // ── CRUD ─────────────────────────────────────────────────────────────────────
 
