@@ -20,7 +20,7 @@ func queryRouter(e *testEnv) *chi.Mux {
 // seedQueryDB registers a db and seeds a table for query tests.
 func seedQueryDB(t *testing.T, e *testEnv, dbName string) {
 	t.Helper()
-	if _, err := e.registry.InsertDatabase(dbName, "tester", nil); err != nil {
+	if _, err := e.registry.InsertDatabase(dbName, "tester", "admin", nil, nil, nil, ""); err != nil {
 		t.Fatalf("InsertDatabase: %v", err)
 	}
 	sqlDB, err := e.pool.Get(dbName)

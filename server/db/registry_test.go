@@ -26,7 +26,7 @@ func TestInsertAndGetDatabase(t *testing.T) {
 	reg := openTestRegistry(t)
 
 	desc := "A test db"
-	rec, err := reg.InsertDatabase("mydb", "alice", &desc)
+	rec, err := reg.InsertDatabase("mydb", "alice", "admin", nil, &desc, nil, "")
 	if err != nil {
 		t.Fatalf("InsertDatabase: %v", err)
 	}
@@ -59,7 +59,7 @@ func TestListDatabases(t *testing.T) {
 	reg := openTestRegistry(t)
 
 	for _, name := range []string{"db1", "db2", "db3"} {
-		if _, err := reg.InsertDatabase(name, "bob", nil); err != nil {
+		if _, err := reg.InsertDatabase(name, "bob", "admin", nil, nil, nil, ""); err != nil {
 			t.Fatalf("InsertDatabase(%s): %v", name, err)
 		}
 	}
@@ -75,7 +75,7 @@ func TestListDatabases(t *testing.T) {
 
 func TestSetDatabaseStatus(t *testing.T) {
 	reg := openTestRegistry(t)
-	if _, err := reg.InsertDatabase("statusdb", "carol", nil); err != nil {
+	if _, err := reg.InsertDatabase("statusdb", "carol", "admin", nil, nil, nil, ""); err != nil {
 		t.Fatal(err)
 	}
 	if err := reg.SetDatabaseStatus("statusdb", "inactive"); err != nil {
@@ -109,7 +109,7 @@ func TestSoftDeleteAndRestore(t *testing.T) {
 	pool := db.NewPool(dir)
 	t.Cleanup(func() { pool.Close() })
 
-	if _, err := reg.InsertDatabase("softdb", "eve", nil); err != nil {
+	if _, err := reg.InsertDatabase("softdb", "eve", "admin", nil, nil, nil, ""); err != nil {
 		t.Fatal(err)
 	}
 
@@ -164,7 +164,7 @@ func TestHardDeleteDatabase(t *testing.T) {
 	}
 	t.Cleanup(func() { _ = reg.Close() })
 
-	if _, err := reg.InsertDatabase("harddb", "frank", nil); err != nil {
+	if _, err := reg.InsertDatabase("harddb", "frank", "admin", nil, nil, nil, ""); err != nil {
 		t.Fatal(err)
 	}
 

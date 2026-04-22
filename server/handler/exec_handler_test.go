@@ -21,7 +21,7 @@ func execRouter(e *testEnv) *chi.Mux {
 // seedExecDB registers a database and creates a simple table for exec tests.
 func seedExecDB(t *testing.T, e *testEnv, dbName string) {
 	t.Helper()
-	if _, err := e.registry.InsertDatabase(dbName, "tester", nil); err != nil {
+	if _, err := e.registry.InsertDatabase(dbName, "tester", "admin", nil, nil, nil, ""); err != nil {
 		t.Fatalf("InsertDatabase: %v", err)
 	}
 	sqlDB, err := e.pool.Get(dbName)
@@ -195,7 +195,7 @@ func TestExecHandler_Delete_OK(t *testing.T) {
 
 func TestExecHandler_CreateTable(t *testing.T) {
 	e := newTestEnv(t)
-	if _, err := e.registry.InsertDatabase("ddldb", "alice", nil); err != nil {
+	if _, err := e.registry.InsertDatabase("ddldb", "alice", "admin", nil, nil, nil, ""); err != nil {
 		t.Fatal(err)
 	}
 	router := execRouter(e)

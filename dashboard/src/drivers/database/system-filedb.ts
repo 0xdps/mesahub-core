@@ -2,7 +2,7 @@ import type { DatabaseResultSet, QueryableBaseDriver } from "@/drivers/base-driv
 import { SqliteLikeBaseDriver } from "@/drivers/sqlite-base-driver";
 
 /**
- * Read-only driver for system databases (registry, control).
+ * Read-only driver for system databases (store).
  * Points at /api/system/db/{name}/query — write attempts are silently rejected
  * by the server, but we also block them client-side for clarity.
  */

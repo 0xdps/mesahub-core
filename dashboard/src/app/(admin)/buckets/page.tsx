@@ -5,18 +5,12 @@ import Link from "next/link";
 
 interface BucketRow {
   id: string;
-  user_id: string;
   name: string;
   display_name: string;
   description: string | null;
-  instance_id: string | null;
   status: string;
   size_bytes: number;
   created_at: string;
-}
-
-interface QueryResponse {
-  rows?: Record<string, unknown>[];
 }
 
 function formatBytes(bytes: number): string {
@@ -26,22 +20,10 @@ function formatBytes(bytes: number): string {
 }
 
 async function fetchBuckets(): Promise<BucketRow[]> {
-  const res = await goFetchAdmin("/api/system/db/control/query", {
-    method: "POST",
-    body: JSON.stringify({
-      sql: `SELECT b.id, b.user_id, b.name, b.display_name, b.description,
-                   b.instance_id, b.status, b.size_bytes, b.created_at
-            FROM buckets b
-            WHERE b.status != 'deleted'
-            ORDER BY b.created_at DESC
-            LIMIT 500`,
-    }),
-  }).catch(() => null);
-
+  const res = await goFetchAdmin("/api/buckets").catch(() => null);
   if (!res?.ok) return [];
-  const data: QueryResponse = await res.json().catch(() => ({}));
-  // The system query endpoint returns { rows: [...] } with column-keyed objects
-  return (data.rows ?? []) as unknown as BucketRow[];
+  const data: unknown = await res.json().catch(() => []);
+  return (Array.isArray(data) ? data : []) as BucketRow[];
 }
 
 export default async function BucketsAdminPage() {
@@ -57,10 +39,9 @@ export default async function BucketsAdminPage() {
               ← Databases
             </Link>
           </div>
-          <h1 className="text-xl font-semibold">Buckets</h1>
+          <h1 className="text-xl font-semibold">Files</h1>
           <p className="text-sm text-neutral-400 mt-1">
-            {activeBuckets.length} active bucket{activeBuckets.length !== 1 ? "s" : ""}{" "}
-            across all users
+            {activeBuckets.length} active bucket{activeBuckets.length !== 1 ? "s" : ""}
           </p>
         </div>
         <div className="flex items-center gap-2">
@@ -81,9 +62,7 @@ export default async function BucketsAdminPage() {
 
       {buckets.length === 0 ? (
         <div className="rounded-lg border border-neutral-800 p-8 text-center">
-          <p className="text-sm text-neutral-400">
-            No buckets yet.
-          </p>
+          <p className="text-sm text-neutral-400">No buckets yet.</p>
           <Link
             href="/buckets/new"
             className="inline-block mt-3 text-sm text-white underline"
@@ -96,9 +75,7 @@ export default async function BucketsAdminPage() {
           <table className="w-full text-sm">
             <thead className="bg-neutral-800 text-neutral-400 text-xs uppercase">
               <tr>
-                <th className="text-left px-4 py-3">Display name</th>
-                <th className="text-left px-4 py-3">Internal name</th>
-                <th className="text-left px-4 py-3">User</th>
+                <th className="text-left px-4 py-3">Name</th>
                 <th className="text-left px-4 py-3">Status</th>
                 <th className="text-right px-4 py-3">Size</th>
                 <th className="text-right px-4 py-3">Created</th>
@@ -109,20 +86,12 @@ export default async function BucketsAdminPage() {
               {buckets.map((bucket) => (
                 <tr key={bucket.id} className="hover:bg-neutral-800/40 transition-colors">
                   <td className="px-4 py-3">
-                    <span className="font-medium text-white">{bucket.display_name}</span>
+                    <span className="font-medium text-white font-mono">{bucket.name}</span>
                     {bucket.description && (
                       <p className="text-xs text-neutral-500 mt-0.5 truncate max-w-[200px]">
                         {bucket.description}
                       </p>
                     )}
-                  </td>
-                  <td className="px-4 py-3">
-                    <code className="text-xs text-neutral-300 font-mono">{bucket.name}</code>
-                  </td>
-                  <td className="px-4 py-3">
-                    <code className="text-xs text-neutral-400 font-mono truncate max-w-[100px] block">
-                      {bucket.user_id}
-                    </code>
                   </td>
                   <td className="px-4 py-3">
                     <span
@@ -164,3 +133,5 @@ export default async function BucketsAdminPage() {
     </div>
   );
 }
+
+

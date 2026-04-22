@@ -1,5 +1,5 @@
 // Package handler — system.go exposes read-only access to internal system
-// databases (registry.db, control.db) via admin-only HTTP endpoints.
+// databases (store.db) via admin-only HTTP endpoints.
 //
 // Routes (all require RequireAdmin middleware):
 //
@@ -23,15 +23,15 @@ import (
 )
 
 // systemDBNames is the ordered list of recognised system database names.
-var systemDBNames = []string{"registry"}
+var systemDBNames = []string{"store"}
 
 // systemDBMeta holds display metadata for each system database.
 var systemDBMeta = map[string]struct {
 	label       string
 	description string
 }{
-	"registry": {
-		label:       "registry.db",
+	"store": {
+		label:       "store.db",
 		description: "Source of truth for all user databases on this instance",
 	},
 }

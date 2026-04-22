@@ -40,6 +40,7 @@ type SessionValue struct {
 type APIKeyValue struct {
 	UserID string   `json:"user_id"`
 	KeyID  string   `json:"key_id"`
+	Owner  string   `json:"owner"`
 	Scopes []string `json:"scopes"`
 }
 

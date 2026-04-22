@@ -82,7 +82,7 @@ func newRestEnv(t *testing.T) *restEnv {
 // users table with some rows. Returns the db name.
 func (e *restEnv) seedDB(t *testing.T, dbName string) {
 	t.Helper()
-	if _, err := e.registry.InsertDatabase(dbName, "test-owner", nil); err != nil {
+	if _, err := e.registry.InsertDatabase(dbName, "test-owner", "admin", nil, nil, nil, ""); err != nil {
 		t.Fatalf("InsertDatabase: %v", err)
 	}
 	sqlDB, err := e.pool.Get(dbName)

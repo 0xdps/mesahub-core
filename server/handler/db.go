@@ -48,9 +48,13 @@ func (h *DBHandler) ListDBs(w http.ResponseWriter, r *http.Request) {
 // CreateDB handles POST /api/db (admin only).
 func (h *DBHandler) CreateDB(w http.ResponseWriter, r *http.Request) {
 	var body struct {
-		Name        string `json:"name"`
-		Owner       string `json:"owner"`
-		Description string `json:"description"`
+		Name        string  `json:"name"`
+		Owner       string  `json:"owner"`
+		Source      string  `json:"source"`
+		Slug        *string `json:"slug"`
+		DisplayName string  `json:"display_name"`
+		InstanceID  *string `json:"instance_id"`
+		Description string  `json:"description"`
 	}
 	if !decodeJSON(w, r, &body) {
 		return
@@ -58,6 +62,9 @@ func (h *DBHandler) CreateDB(w http.ResponseWriter, r *http.Request) {
 	if body.Name == "" || body.Owner == "" {
 		ErrorJSON(w, http.StatusBadRequest, "name and owner are required")
 		return
+	}
+	if body.Source == "" {
+		body.Source = "admin"
 	}
 	if !nameRegex.MatchString(body.Name) {
 		ErrorJSON(w, http.StatusBadRequest, "name must match ^[A-Za-z0-9_-]+$")
@@ -89,7 +96,7 @@ func (h *DBHandler) CreateDB(w http.ResponseWriter, r *http.Request) {
 		desc = &d
 	}
 
-	record, err := h.registry.InsertDatabase(body.Name, body.Owner, desc)
+	record, err := h.registry.InsertDatabase(body.Name, body.Owner, body.Source, body.InstanceID, desc, body.Slug, body.DisplayName)
 	if err != nil {
 		ErrorJSON(w, http.StatusInternalServerError, err.Error())
 		return
@@ -255,6 +262,8 @@ func (h *DBHandler) withStats(rec *db.DBRecord) map[string]any {
 	return map[string]any{
 		"id":            rec.ID,
 		"name":          rec.Name,
+		"slug":          nullStr(rec.Slug),
+		"display_name":  rec.DisplayName,
 		"owner":         rec.Owner,
 		"description":   nullStr(rec.Description),
 		"created_at":    rec.CreatedAt,

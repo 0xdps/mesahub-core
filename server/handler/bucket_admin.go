@@ -49,6 +49,9 @@ func (h *BucketAdminHandler) CreateBucket(w http.ResponseWriter, r *http.Request
 	var body struct {
 		Name        string  `json:"name"`
 		DisplayName string  `json:"display_name"`
+		Owner       string  `json:"owner"`
+		Source      string  `json:"source"`
+		InstanceID  *string `json:"instance_id"`
 		Description *string `json:"description"`
 	}
 	if !decodeJSON(w, r, &body) {
@@ -58,13 +61,19 @@ func (h *BucketAdminHandler) CreateBucket(w http.ResponseWriter, r *http.Request
 		ErrorJSON(w, http.StatusBadRequest, "name and display_name are required")
 		return
 	}
+	if body.Owner == "" {
+		body.Owner = "admin"
+	}
+	if body.Source == "" {
+		body.Source = "admin"
+	}
 	if !nameRegex.MatchString(body.Name) {
 		ErrorJSON(w, http.StatusBadRequest, "name may only contain letters, digits, hyphens, and underscores")
 		return
 	}
 
 	id := uuid.New().String()
-	rec, err := h.registry.InsertBucket(id, body.Name, body.DisplayName, body.Description)
+	rec, err := h.registry.InsertBucket(id, body.Name, body.DisplayName, body.Owner, body.Source, body.InstanceID, body.Description)
 	if err != nil {
 		ErrorJSON(w, http.StatusConflict, err.Error())
 		return

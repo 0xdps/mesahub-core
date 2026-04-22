@@ -30,6 +30,8 @@ func NewAPIKeysHandler(registry *db.Registry) *APIKeysHandler {
 func (h *APIKeysHandler) CreateAPIKey(w http.ResponseWriter, r *http.Request) {
 	var body struct {
 		Name      string   `json:"name"`
+		Owner     string   `json:"owner"`
+		KeyType   string   `json:"key_type"`
 		Scopes    []string `json:"scopes"`
 		ExpiresAt *string  `json:"expires_at"`
 	}
@@ -39,6 +41,12 @@ func (h *APIKeysHandler) CreateAPIKey(w http.ResponseWriter, r *http.Request) {
 	if body.Name == "" {
 		ErrorJSON(w, http.StatusBadRequest, "name is required")
 		return
+	}
+	if body.Owner == "" {
+		body.Owner = "admin"
+	}
+	if body.KeyType == "" {
+		body.KeyType = "admin"
 	}
 
 	raw, err := generateAPIKey()
@@ -57,7 +65,7 @@ func (h *APIKeysHandler) CreateAPIKey(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	rec, err := h.registry.InsertAPIKey(id, body.Name, hash, scopesJSON, body.ExpiresAt)
+	rec, err := h.registry.InsertAPIKey(id, body.Name, hash, scopesJSON, body.Owner, body.KeyType, body.ExpiresAt)
 	if err != nil {
 		ErrorJSON(w, http.StatusInternalServerError, err.Error())
 		return

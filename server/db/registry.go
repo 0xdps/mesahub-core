@@ -21,10 +21,16 @@ type Registry struct {
 type DBRecord struct {
 	ID           int64
 	Name         string
+	Slug         sql.NullString
+	DisplayName  string
 	Owner        string
+	Source       string
+	InstanceID   sql.NullString
 	Description  sql.NullString
 	CreatedAt    string
+	UpdatedAt    sql.NullString
 	Status       string
+	SizeBytes    int64
 	OriginalName sql.NullString
 	DeletedAt    sql.NullString
 }
@@ -42,6 +48,8 @@ CREATE TABLE IF NOT EXISTS api_keys (
   name         TEXT NOT NULL,
   key_hash     TEXT NOT NULL UNIQUE,
   scopes       TEXT NOT NULL DEFAULT '["all:w"]',
+  owner        TEXT NOT NULL DEFAULT 'admin',
+  key_type     TEXT NOT NULL DEFAULT 'admin',
   expires_at   TEXT,
   status       TEXT NOT NULL DEFAULT 'active',
   last_used_at TEXT,
@@ -53,21 +61,35 @@ CREATE TABLE IF NOT EXISTS buckets (
   name         TEXT NOT NULL UNIQUE,
   display_name TEXT NOT NULL,
   description  TEXT,
+  owner        TEXT NOT NULL DEFAULT 'admin',
+  source       TEXT NOT NULL DEFAULT 'template',
+  slug         TEXT UNIQUE,
+  instance_id  TEXT,
   status       TEXT NOT NULL DEFAULT 'active',
   size_bytes   INTEGER NOT NULL DEFAULT 0,
   created_at   TEXT NOT NULL DEFAULT (datetime('now'))
 );
+CREATE INDEX IF NOT EXISTS idx_buckets_owner ON buckets(owner);
 
 CREATE TABLE IF NOT EXISTS databases (
   id             INTEGER PRIMARY KEY AUTOINCREMENT,
-  name           TEXT UNIQUE NOT NULL,
-  owner          TEXT NOT NULL,
+  name           TEXT NOT NULL,
+  slug           TEXT UNIQUE,
+  display_name   TEXT NOT NULL DEFAULT '',
+  owner          TEXT NOT NULL DEFAULT 'admin',
+  source         TEXT NOT NULL DEFAULT 'template',
+  instance_id    TEXT,
   description    TEXT,
-  created_at     DATETIME DEFAULT CURRENT_TIMESTAMP,
   status         TEXT NOT NULL DEFAULT 'active',
+  size_bytes     INTEGER NOT NULL DEFAULT 0,
   original_name  TEXT,
-  deleted_at     DATETIME
+  created_at     DATETIME DEFAULT CURRENT_TIMESTAMP,
+  updated_at     TEXT,
+  deleted_at     DATETIME,
+  UNIQUE(owner, name)
 );
+CREATE INDEX IF NOT EXISTS idx_databases_owner ON databases(owner);
+CREATE UNIQUE INDEX IF NOT EXISTS idx_databases_slug ON databases(slug) WHERE slug IS NOT NULL;
 
 CREATE TABLE IF NOT EXISTS file_token_revocations (
   token_id   TEXT PRIMARY KEY,
@@ -103,7 +125,7 @@ func OpenRegistry(dataPath string) (*Registry, error) {
 	if err := os.MkdirAll(dataPath, 0o755); err != nil {
 		return nil, fmt.Errorf("registry: mkdir %s: %w", dataPath, err)
 	}
-	dbPath := filepath.Join(dataPath, "registry.db")
+	dbPath := filepath.Join(dataPath, "store.db")
 	db, err := open(dbPath)
 	if err != nil {
 		return nil, fmt.Errorf("registry: open: %w", err)
@@ -111,52 +133,7 @@ func OpenRegistry(dataPath string) (*Registry, error) {
 	if _, err := db.Exec(registrySchema); err != nil {
 		return nil, fmt.Errorf("registry: schema: %w", err)
 	}
-	if err := migrateRegistry(db); err != nil {
-		return nil, fmt.Errorf("registry: migrate: %w", err)
-	}
 	return &Registry{db: db, dataPath: dataPath}, nil
-}
-
-// migrateRegistry adds columns introduced after the initial schema without
-// dropping data — mirrors the column checks in registry.ts.
-func migrateRegistry(db *sql.DB) error {
-	type col struct{ name string }
-	rows, err := db.Query("PRAGMA table_info(databases)")
-	if err != nil {
-		return err
-	}
-	defer rows.Close()
-
-	existing := map[string]bool{}
-	for rows.Next() {
-		var cid int
-		var name, typ string
-		var notnull, pk int
-		var dflt sql.NullString
-		if err := rows.Scan(&cid, &name, &typ, &notnull, &dflt, &pk); err != nil {
-			return err
-		}
-		existing[name] = true
-	}
-	if err := rows.Err(); err != nil {
-		return err
-	}
-
-	migrations := []struct {
-		col string
-		ddl string
-	}{
-		{"original_name", "ALTER TABLE databases ADD COLUMN original_name TEXT"},
-		{"deleted_at", "ALTER TABLE databases ADD COLUMN deleted_at DATETIME"},
-	}
-	for _, m := range migrations {
-		if !existing[m.col] {
-			if _, err := db.Exec(m.ddl); err != nil {
-				return fmt.Errorf("add column %s: %w", m.col, err)
-			}
-		}
-	}
-	return nil
 }
 
 // Close shuts down the registry connection.
@@ -186,7 +163,8 @@ func (r *Registry) RunOnce(name string, fn func() error) error {
 // ListDatabases returns all non-deleted databases ordered by created_at desc.
 func (r *Registry) ListDatabases() ([]DBRecord, error) {
 	rows, err := r.db.Query(
-		`SELECT id, name, owner, description, created_at, status, original_name, deleted_at
+		`SELECT id, name, slug, display_name, owner, source, instance_id, description,
+		        created_at, updated_at, status, size_bytes, original_name, deleted_at
 		 FROM databases WHERE status != 'deleted' ORDER BY created_at DESC`)
 	if err != nil {
 		return nil, err
@@ -198,7 +176,8 @@ func (r *Registry) ListDatabases() ([]DBRecord, error) {
 // GetDatabase returns the database record for name (any status).
 func (r *Registry) GetDatabase(name string) (*DBRecord, error) {
 	row := r.db.QueryRow(
-		`SELECT id, name, owner, description, created_at, status, original_name, deleted_at
+		`SELECT id, name, slug, display_name, owner, source, instance_id, description,
+		        created_at, updated_at, status, size_bytes, original_name, deleted_at
 		 FROM databases WHERE name = ?`, name)
 	rec, err := scanDBRecord(row)
 	if err == sql.ErrNoRows {
@@ -208,10 +187,16 @@ func (r *Registry) GetDatabase(name string) (*DBRecord, error) {
 }
 
 // InsertDatabase creates a new database record.
-func (r *Registry) InsertDatabase(name, owner string, description *string) (*DBRecord, error) {
+// slug is the control-plane UUID (SaaS mode) or nil (template mode).
+// displayName is the human-readable label; defaults to name when empty.
+func (r *Registry) InsertDatabase(name, owner, source string, instanceID *string, description *string, slug *string, displayName string) (*DBRecord, error) {
+	dn := displayName
+	if dn == "" {
+		dn = name
+	}
 	_, err := r.db.Exec(
-		`INSERT INTO databases (name, owner, description) VALUES (?, ?, ?)`,
-		name, owner, strPtr(description))
+		`INSERT INTO databases (name, slug, display_name, owner, source, instance_id, description) VALUES (?, ?, ?, ?, ?, ?, ?)`,
+		name, strPtr(slug), dn, owner, source, strPtr(instanceID), strPtr(description))
 	if err != nil {
 		return nil, err
 	}
@@ -259,10 +244,63 @@ func (r *Registry) SoftDeleteDatabase(pool *Pool, name string) error {
 	return err
 }
 
+// GetDatabaseBySlug returns a database record by its slug.
+func (r *Registry) GetDatabaseBySlug(slug string) (*DBRecord, error) {
+	row := r.db.QueryRow(
+		`SELECT id, name, slug, display_name, owner, source, instance_id, description,
+		        created_at, updated_at, status, size_bytes, original_name, deleted_at
+		 FROM databases WHERE slug = ?`, slug)
+	rec, err := scanDBRecord(row)
+	if err == sql.ErrNoRows {
+		return nil, nil
+	}
+	return rec, err
+}
+
+// ListDatabasesByOwner returns all non-deleted databases for a given owner.
+func (r *Registry) ListDatabasesByOwner(owner string) ([]DBRecord, error) {
+	rows, err := r.db.Query(
+		`SELECT id, name, slug, display_name, owner, source, instance_id, description,
+		        created_at, updated_at, status, size_bytes, original_name, deleted_at
+		 FROM databases WHERE owner = ? AND status != 'deleted' ORDER BY created_at DESC`, owner)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	return scanDBRecords(rows)
+}
+
+// ListBucketsByOwner returns all active buckets for a given owner.
+func (r *Registry) ListBucketsByOwner(owner string) ([]BucketRecord, error) {
+	rows, err := r.db.Query(
+		`SELECT id, name, display_name, description, owner, source, slug, instance_id,
+		        status, size_bytes, created_at
+		 FROM buckets WHERE owner = ? AND status = 'active' ORDER BY created_at DESC`, owner)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	return scanBucketRecords(rows)
+}
+
+// ListAPIKeysByOwner returns all active API keys for a given owner.
+func (r *Registry) ListAPIKeysByOwner(owner string) ([]APIKeyRecord, error) {
+	rows, err := r.db.Query(
+		`SELECT id, name, key_hash, scopes, owner, key_type,
+		        expires_at, status, last_used_at, created_at
+		 FROM api_keys WHERE owner = ? AND status = 'active' ORDER BY created_at DESC`, owner)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	return scanAPIKeyRecords(rows)
+}
+
 // ListDeletedDatabases returns all soft-deleted databases.
 func (r *Registry) ListDeletedDatabases() ([]DBRecord, error) {
 	rows, err := r.db.Query(
-		`SELECT id, name, owner, description, created_at, status, original_name, deleted_at
+		`SELECT id, name, slug, display_name, owner, source, instance_id, description,
+		        created_at, updated_at, status, size_bytes, original_name, deleted_at
 		 FROM databases WHERE status = 'deleted' ORDER BY deleted_at DESC`)
 	if err != nil {
 		return nil, err
@@ -426,17 +464,19 @@ type APIKeyRecord struct {
 	Name       string
 	KeyHash    string
 	Scopes     string
+	Owner      string
+	KeyType    string
 	ExpiresAt  sql.NullString
 	Status     string
 	LastUsedAt sql.NullString
 	CreatedAt  string
 }
 
-// InsertAPIKey inserts a new admin-managed (shk_) API key.
-func (r *Registry) InsertAPIKey(id, name, keyHash, scopes string, expiresAt *string) (*APIKeyRecord, error) {
+// InsertAPIKey inserts a new API key.
+func (r *Registry) InsertAPIKey(id, name, keyHash, scopes, owner, keyType string, expiresAt *string) (*APIKeyRecord, error) {
 	_, err := r.db.Exec(
-		`INSERT INTO api_keys (id, name, key_hash, scopes, expires_at) VALUES (?, ?, ?, ?, ?)`,
-		id, name, keyHash, scopes, strPtr(expiresAt))
+		`INSERT INTO api_keys (id, name, key_hash, scopes, owner, key_type, expires_at) VALUES (?, ?, ?, ?, ?, ?, ?)`,
+		id, name, keyHash, scopes, owner, keyType, strPtr(expiresAt))
 	if err != nil {
 		return nil, err
 	}
@@ -446,7 +486,8 @@ func (r *Registry) InsertAPIKey(id, name, keyHash, scopes string, expiresAt *str
 // GetAPIKeyByID returns a key record by its ID.
 func (r *Registry) GetAPIKeyByID(id string) (*APIKeyRecord, error) {
 	row := r.db.QueryRow(
-		`SELECT id, name, key_hash, scopes, expires_at, status, last_used_at, created_at
+		`SELECT id, name, key_hash, scopes, owner, key_type,
+		        expires_at, status, last_used_at, created_at
 		 FROM api_keys WHERE id = ?`, id)
 	return scanAPIKeyRecord(row)
 }
@@ -454,7 +495,8 @@ func (r *Registry) GetAPIKeyByID(id string) (*APIKeyRecord, error) {
 // GetAPIKeyByHash returns a key record by its SHA-256 hash (used during auth).
 func (r *Registry) GetAPIKeyByHash(hash string) (*APIKeyRecord, error) {
 	row := r.db.QueryRow(
-		`SELECT id, name, key_hash, scopes, expires_at, status, last_used_at, created_at
+		`SELECT id, name, key_hash, scopes, owner, key_type,
+		        expires_at, status, last_used_at, created_at
 		 FROM api_keys WHERE key_hash = ? AND status = 'active'`, hash)
 	rec, err := scanAPIKeyRecord(row)
 	if err == sql.ErrNoRows {
@@ -466,7 +508,8 @@ func (r *Registry) GetAPIKeyByHash(hash string) (*APIKeyRecord, error) {
 // ListAPIKeys returns all active API key records (hash only — raw value is never stored).
 func (r *Registry) ListAPIKeys() ([]APIKeyRecord, error) {
 	rows, err := r.db.Query(
-		`SELECT id, name, key_hash, scopes, expires_at, status, last_used_at, created_at
+		`SELECT id, name, key_hash, scopes, owner, key_type,
+		        expires_at, status, last_used_at, created_at
 		 FROM api_keys WHERE status = 'active' ORDER BY created_at DESC`)
 	if err != nil {
 		return nil, err
@@ -496,26 +539,57 @@ type BucketRecord struct {
 	Name        string
 	DisplayName string
 	Description sql.NullString
+	Owner       string
+	Source      string
+	Slug        sql.NullString
+	InstanceID  sql.NullString
 	Status      string
 	SizeBytes   int64
 	CreatedAt   string
 }
 
 // InsertBucket creates a new bucket record.
-func (r *Registry) InsertBucket(id, name, displayName string, description *string) (*BucketRecord, error) {
+func (r *Registry) InsertBucket(id, name, displayName, owner, source string, instanceID *string, description *string) (*BucketRecord, error) {
 	_, err := r.db.Exec(
-		`INSERT INTO buckets (id, name, display_name, description) VALUES (?, ?, ?, ?)`,
-		id, name, displayName, strPtr(description))
+		`INSERT INTO buckets (id, name, display_name, owner, source, instance_id, description) VALUES (?, ?, ?, ?, ?, ?, ?)`,
+		id, name, displayName, owner, source, strPtr(instanceID), strPtr(description))
 	if err != nil {
 		return nil, err
 	}
 	return r.GetBucket(name)
 }
 
-// GetBucket returns a bucket record by slug.
+// GetBucketByID returns a bucket record by its UUID primary key.
+func (r *Registry) GetBucketByID(id string) (*BucketRecord, error) {
+	row := r.db.QueryRow(
+		`SELECT id, name, display_name, description, owner, source, slug, instance_id,
+		        status, size_bytes, created_at
+		 FROM buckets WHERE id = ?`, id)
+	rec, err := scanBucketRecord(row)
+	if err == sql.ErrNoRows {
+		return nil, nil
+	}
+	return rec, err
+}
+
+// GetBucketBySlug returns a bucket record by its slug (control-plane UUID).
+func (r *Registry) GetBucketBySlug(slug string) (*BucketRecord, error) {
+	row := r.db.QueryRow(
+		`SELECT id, name, display_name, description, owner, source, slug, instance_id,
+		        status, size_bytes, created_at
+		 FROM buckets WHERE slug = ?`, slug)
+	rec, err := scanBucketRecord(row)
+	if err == sql.ErrNoRows {
+		return nil, nil
+	}
+	return rec, err
+}
+
+// GetBucket returns a bucket record by name.
 func (r *Registry) GetBucket(name string) (*BucketRecord, error) {
 	row := r.db.QueryRow(
-		`SELECT id, name, display_name, description, status, size_bytes, created_at
+		`SELECT id, name, display_name, description, owner, source, slug, instance_id,
+		        status, size_bytes, created_at
 		 FROM buckets WHERE name = ?`, name)
 	rec, err := scanBucketRecord(row)
 	if err == sql.ErrNoRows {
@@ -527,7 +601,8 @@ func (r *Registry) GetBucket(name string) (*BucketRecord, error) {
 // ListBuckets returns all active buckets.
 func (r *Registry) ListBuckets() ([]BucketRecord, error) {
 	rows, err := r.db.Query(
-		`SELECT id, name, display_name, description, status, size_bytes, created_at
+		`SELECT id, name, display_name, description, owner, source, slug, instance_id,
+		        status, size_bytes, created_at
 		 FROM buckets WHERE status = 'active' ORDER BY created_at DESC`)
 	if err != nil {
 		return nil, err
@@ -561,8 +636,8 @@ func strPtr(s *string) any {
 func scanDBRecord(row *sql.Row) (*DBRecord, error) {
 	var r DBRecord
 	err := row.Scan(
-		&r.ID, &r.Name, &r.Owner, &r.Description,
-		&r.CreatedAt, &r.Status, &r.OriginalName, &r.DeletedAt)
+		&r.ID, &r.Name, &r.Slug, &r.DisplayName, &r.Owner, &r.Source, &r.InstanceID, &r.Description,
+		&r.CreatedAt, &r.UpdatedAt, &r.Status, &r.SizeBytes, &r.OriginalName, &r.DeletedAt)
 	if err != nil {
 		return nil, err
 	}
@@ -574,8 +649,8 @@ func scanDBRecords(rows *sql.Rows) ([]DBRecord, error) {
 	for rows.Next() {
 		var r DBRecord
 		if err := rows.Scan(
-			&r.ID, &r.Name, &r.Owner, &r.Description,
-			&r.CreatedAt, &r.Status, &r.OriginalName, &r.DeletedAt); err != nil {
+			&r.ID, &r.Name, &r.Slug, &r.DisplayName, &r.Owner, &r.Source, &r.InstanceID, &r.Description,
+			&r.CreatedAt, &r.UpdatedAt, &r.Status, &r.SizeBytes, &r.OriginalName, &r.DeletedAt); err != nil {
 			return nil, err
 		}
 		out = append(out, r)
@@ -586,6 +661,7 @@ func scanDBRecords(rows *sql.Rows) ([]DBRecord, error) {
 func scanAPIKeyRecord(row *sql.Row) (*APIKeyRecord, error) {
 	var r APIKeyRecord
 	err := row.Scan(&r.ID, &r.Name, &r.KeyHash, &r.Scopes,
+		&r.Owner, &r.KeyType,
 		&r.ExpiresAt, &r.Status, &r.LastUsedAt, &r.CreatedAt)
 	if err != nil {
 		return nil, err
@@ -598,6 +674,7 @@ func scanAPIKeyRecords(rows *sql.Rows) ([]APIKeyRecord, error) {
 	for rows.Next() {
 		var r APIKeyRecord
 		if err := rows.Scan(&r.ID, &r.Name, &r.KeyHash, &r.Scopes,
+			&r.Owner, &r.KeyType,
 			&r.ExpiresAt, &r.Status, &r.LastUsedAt, &r.CreatedAt); err != nil {
 			return nil, err
 		}
@@ -609,6 +686,7 @@ func scanAPIKeyRecords(rows *sql.Rows) ([]APIKeyRecord, error) {
 func scanBucketRecord(row *sql.Row) (*BucketRecord, error) {
 	var r BucketRecord
 	err := row.Scan(&r.ID, &r.Name, &r.DisplayName, &r.Description,
+		&r.Owner, &r.Source, &r.Slug, &r.InstanceID,
 		&r.Status, &r.SizeBytes, &r.CreatedAt)
 	if err != nil {
 		return nil, err
@@ -621,6 +699,7 @@ func scanBucketRecords(rows *sql.Rows) ([]BucketRecord, error) {
 	for rows.Next() {
 		var r BucketRecord
 		if err := rows.Scan(&r.ID, &r.Name, &r.DisplayName, &r.Description,
+			&r.Owner, &r.Source, &r.Slug, &r.InstanceID,
 			&r.Status, &r.SizeBytes, &r.CreatedAt); err != nil {
 			return nil, err
 		}

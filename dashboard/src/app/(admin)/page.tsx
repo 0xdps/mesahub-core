@@ -15,7 +15,6 @@ export interface DbRecord {
 
 export interface BucketRecord {
   id: string;
-  user_id: string;
   name: string;
   display_name: string;
   description: string | null;
@@ -24,63 +23,36 @@ export interface BucketRecord {
   created_at: string;
 }
 
-export interface UserOption {
-  id: string;
-  email: string;
-}
-
 export interface MetricsData {
   volume_used_bytes: number;
   volume_total_bytes: number;
   volume_used_percent: number;
 }
 
-const SYSTEM_DBS = new Set(["registry", "control"]);
+const SYSTEM_DBS = new Set(["store"]);
 
 export default async function DashboardPage() {
-  const [dbsRes, metricsRes, bucketsRes, usersRes] = await Promise.all([
+  const [dbsRes, metricsRes, bucketsRes] = await Promise.all([
     goFetchAdmin("/api/db").catch(() => null),
     goFetchAdmin("/api/metrics").catch(() => null),
-    FILES_ENABLED
-      ? goFetchAdmin("/api/system/db/control/query", {
-          method: "POST",
-          body: JSON.stringify({
-            sql: `SELECT id, user_id, name, display_name, description, status, size_bytes, created_at
-                  FROM buckets WHERE status != 'deleted' ORDER BY created_at DESC LIMIT 500`,
-          }),
-        }).catch(() => null)
-      : Promise.resolve(null),
-    goFetchAdmin("/api/system/db/control/query", {
-      method: "POST",
-      body: JSON.stringify({
-        sql: "SELECT id, email FROM users ORDER BY created_at DESC LIMIT 500",
-      }),
-    }).catch(() => null),
+    FILES_ENABLED ? goFetchAdmin("/api/buckets").catch(() => null) : Promise.resolve(null),
   ]);
 
   const allDbs: DbRecord[] = dbsRes?.ok ? await dbsRes.json().catch(() => []) : [];
   const metrics: MetricsData | null = metricsRes?.ok
     ? await metricsRes.json().catch(() => null)
     : null;
-  const bucketsJson = bucketsRes?.ok ? await bucketsRes.json().catch(() => ({})) : {};
-  const usersJson = usersRes?.ok ? await usersRes.json().catch(() => ({})) : {};
+  const bucketsRaw: unknown[] = bucketsRes?.ok ? await bucketsRes.json().catch(() => []) : [];
 
-  const buckets: BucketRecord[] = ((bucketsJson.rows ?? []) as Record<string, unknown>[]).map(
-    (r) => ({
-      id: String(r.id ?? ""),
-      user_id: String(r.user_id ?? ""),
-      name: String(r.name ?? ""),
-      display_name: String(r.display_name ?? ""),
-      description: r.description ? String(r.description) : null,
-      status: String(r.status ?? ""),
-      size_bytes: Number(r.size_bytes ?? 0),
-      created_at: String(r.created_at ?? ""),
-    })
-  );
-
-  const users: UserOption[] = ((usersJson.rows ?? []) as Record<string, unknown>[])
-    .map((r) => ({ id: String(r.id ?? ""), email: String(r.email ?? "") }))
-    .filter((u) => u.id.length > 0);
+  const buckets: BucketRecord[] = (bucketsRaw as Record<string, unknown>[]).map((r) => ({
+    id: String(r.id ?? ""),
+    name: String(r.name ?? ""),
+    display_name: String(r.display_name ?? ""),
+    description: r.description ? String(r.description) : null,
+    status: String(r.status ?? ""),
+    size_bytes: Number(r.size_bytes ?? 0),
+    created_at: String(r.created_at ?? ""),
+  }));
 
   const userDbs = allDbs.filter((d) => !SYSTEM_DBS.has(d.name));
   const systemDbs = allDbs.filter((d) => SYSTEM_DBS.has(d.name));
@@ -90,7 +62,6 @@ export default async function DashboardPage() {
       userDbs={userDbs}
       systemDbs={systemDbs}
       buckets={buckets}
-      users={users}
       metrics={metrics}
     />
   );

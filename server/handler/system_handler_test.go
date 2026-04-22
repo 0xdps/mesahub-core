@@ -45,7 +45,7 @@ func TestSystemHandler_ListSystemDBs_EmptyDataDir(t *testing.T) {
 func TestSystemHandler_ListSystemDBs_RegistryPresent(t *testing.T) {
 	e := newTestEnv(t)
 	// Force registry.db to exist by inserting a database.
-	if _, err := e.registry.InsertDatabase("sysdbtest", "alice", nil); err != nil {
+	if _, err := e.registry.InsertDatabase("sysdbtest", "alice", "admin", nil, nil, nil, ""); err != nil {
 		t.Fatalf("InsertDatabase: %v", err)
 	}
 	router := systemRouter(e)
@@ -76,7 +76,7 @@ func TestSystemHandler_ListSystemDBs_RegistryPresent(t *testing.T) {
 
 func TestSystemHandler_ListSystemDBs_HasSizeField(t *testing.T) {
 	e := newTestEnv(t)
-	e.registry.InsertDatabase("sizetest", "alice", nil)
+	e.registry.InsertDatabase("sizetest", "alice", "admin", nil, nil, nil, "")
 	router := systemRouter(e)
 
 	code, raw := envFireRaw(t, router, http.MethodGet, "/api/system/dbs", nil)
@@ -111,7 +111,7 @@ func TestSystemHandler_ListSystemDBs_RequiresAdmin(t *testing.T) {
 func TestSystemHandler_QuerySystemDB_SELECT_Registry(t *testing.T) {
 	e := newTestEnv(t)
 	// Ensure registry has at least one row.
-	e.registry.InsertDatabase("q1", "tester", nil)
+	e.registry.InsertDatabase("q1", "tester", "admin", nil, nil, nil, "")
 	router := systemRouter(e)
 
 	code, resp := envFire(t, router, http.MethodPost, "/api/system/db/registry/query", map[string]any{

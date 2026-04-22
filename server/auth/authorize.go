@@ -2,18 +2,18 @@
 package auth
 
 import (
-"context"
-"crypto/sha256"
-"crypto/subtle"
-"encoding/hex"
-"encoding/json"
-"net/http"
-"strings"
-"time"
+	"context"
+	"crypto/sha256"
+	"crypto/subtle"
+	"encoding/hex"
+	"encoding/json"
+	"net/http"
+	"strings"
+	"time"
 
-"github.com/0xdps/sqlite-hub-template/cache"
-"github.com/0xdps/sqlite-hub-template/config"
-"github.com/0xdps/sqlite-hub-template/db"
+	"github.com/0xdps/sqlite-hub-template/cache"
+	"github.com/0xdps/sqlite-hub-template/config"
+	"github.com/0xdps/sqlite-hub-template/db"
 )
 
 // apiKeyTTL is how long a validated API key result is cached.
@@ -93,6 +93,7 @@ func ValidateTemplateKey(ctx context.Context, c cache.Client, keyValue string) (
 
 	kv := &cache.APIKeyValue{
 		KeyID:  rec.ID,
+		Owner:  rec.Owner,
 		Scopes: scopes,
 	}
 	_ = c.SetAPIKey(ctx, keyHash, *kv, apiKeyTTL)
@@ -166,38 +167,23 @@ func AuthorizeDBWithKey(r *http.Request, cfg *config.Config, c cache.Client, rec
 		return http.StatusUnauthorized, "Unauthorized", nil
 	}
 
-	if strings.HasPrefix(bearer, "shk_") {
-		kv, ok := ValidateTemplateKey(r.Context(), c, bearer)
-		if !ok {
-			return http.StatusUnauthorized, "Unauthorized", nil
-		}
-		op := "read"
-		if strings.Contains(r.URL.Path, "/exec") {
-			op = "write"
-		}
-		if !hasPermission(kv.Scopes, "db", record.Name, op) {
-			return http.StatusForbidden, "This API key does not have access to this database", nil
-		}
-		return 0, "", kv
+	kv, ok := ValidateTemplateKey(r.Context(), c, bearer)
+	if !ok {
+		return http.StatusUnauthorized, "Unauthorized", nil
 	}
-
-	// Delegate to the SaaS hook (e.g. shs_ keys from control.db).
-	if UserKeyValidator != nil {
-		kv, ok := UserKeyValidator(r.Context(), c, cfg.DataPath, bearer)
-		if !ok || kv.UserID != record.Owner {
-			return http.StatusUnauthorized, "Unauthorized", nil
-		}
-		op := "read"
-		if strings.Contains(r.URL.Path, "/exec") {
-			op = "write"
-		}
-		if !hasPermission(kv.Scopes, "db", record.Name, op) {
-			return http.StatusForbidden, "This API key does not have access to this database", nil
-		}
-		return 0, "", kv
+	// Owner check: admin keys (owner="admin") have full access; user-scoped
+	// keys must match the resource owner.
+	if kv.Owner != "admin" && kv.Owner != record.Owner {
+		return http.StatusUnauthorized, "Unauthorized", nil
 	}
-
-	return http.StatusUnauthorized, "Unauthorized", nil
+	op := "read"
+	if strings.Contains(r.URL.Path, "/exec") {
+		op = "write"
+	}
+	if !hasPermission(kv.Scopes, "db", record.Name, op) {
+		return http.StatusForbidden, "This API key does not have access to this database", nil
+	}
+	return 0, "", kv
 }
 
 func extractBearer(r *http.Request) string {

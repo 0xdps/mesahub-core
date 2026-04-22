@@ -4,7 +4,7 @@ import { FILES_ENABLED } from "@/lib/features";
 import { useState, useMemo, useTransition } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import type { DbRecord, BucketRecord, UserOption, MetricsData } from "./page";
+import type { DbRecord, BucketRecord, MetricsData } from "./page";
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
@@ -171,7 +171,6 @@ function CreateDbModal({
   onCreated: () => void;
 }) {
   const [name, setName] = useState("");
-  const [owner, setOwner] = useState("");
   const [description, setDescription] = useState("");
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(false);
@@ -186,7 +185,7 @@ function CreateDbModal({
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           name,
-          owner: owner || undefined,
+          owner: "admin",
           description: description || undefined,
         }),
       });
@@ -218,15 +217,6 @@ function CreateDbModal({
             className={inputCls}
           />
         </Field>
-        <Field label="Owner" optional>
-          <input
-            type="text"
-            value={owner}
-            onChange={(e) => setOwner(e.target.value)}
-            placeholder="system"
-            className={inputCls}
-          />
-        </Field>
         <Field label="Description" optional>
           <input
             type="text"
@@ -246,32 +236,16 @@ function CreateDbModal({
 // ─── Create Bucket modal ──────────────────────────────────────────────────────
 
 function CreateBucketModal({
-  users,
   onClose,
   onCreated,
 }: {
-  users: UserOption[];
   onClose: () => void;
   onCreated: () => void;
 }) {
-  const defaultUserId = users[0]?.id ?? "";
-  const [userId, setUserId] = useState(defaultUserId);
-  const [displayName, setDisplayName] = useState("");
   const [name, setName] = useState("");
   const [description, setDescription] = useState("");
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(false);
-
-  // Auto-derive internal name from display name
-  function handleDisplayName(v: string) {
-    setDisplayName(v);
-    setName(
-      v
-        .toLowerCase()
-        .replace(/\s+/g, "-")
-        .replace(/[^a-z0-9_-]/g, "")
-    );
-  }
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
@@ -282,9 +256,7 @@ function CreateBucketModal({
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          userId,
           name,
-          displayName: displayName || name,
           description: description || undefined,
         }),
       });
@@ -304,46 +276,9 @@ function CreateBucketModal({
   return (
     <Modal title="New bucket" onClose={onClose}>
       <form onSubmit={handleSubmit} className="space-y-4">
-        {users.length > 0 ? (
-          <Field label="User">
-            <select
-              value={userId}
-              onChange={(e) => setUserId(e.target.value)}
-              className={inputCls}
-              required
-            >
-              {users.map((u) => (
-                <option key={u.id} value={u.id}>
-                  {u.email} ({u.id.slice(0, 8)}…)
-                </option>
-              ))}
-            </select>
-          </Field>
-        ) : (
-          <Field label="User ID">
-            <input
-              type="text"
-              value={userId}
-              onChange={(e) => setUserId(e.target.value)}
-              placeholder="usr_01abc…"
-              required
-              className={inputCls}
-            />
-          </Field>
-        )}
-        <Field label="Display name">
+        <Field label="Name" hint="lowercase, hyphens, underscores">
           <input
             autoFocus
-            type="text"
-            value={displayName}
-            onChange={(e) => handleDisplayName(e.target.value)}
-            placeholder="My Bucket"
-            required
-            className={inputCls}
-          />
-        </Field>
-        <Field label="Internal name" hint="auto-derived, lowercase slug">
-          <input
             type="text"
             value={name}
             onChange={(e) => setName(e.target.value)}
@@ -592,8 +527,7 @@ function BucketList({
     return buckets.filter(
       (b) =>
         b.name.toLowerCase().includes(q) ||
-        b.display_name.toLowerCase().includes(q) ||
-        b.user_id.toLowerCase().includes(q)
+        b.display_name.toLowerCase().includes(q)
     );
   }, [buckets, query]);
 
@@ -611,13 +545,7 @@ function BucketList({
         <thead>
           <tr className="border-b border-zinc-800">
             <th className="text-left px-4 py-2.5 text-xs font-medium text-zinc-500 uppercase tracking-wider">
-              Display name
-            </th>
-            <th className="text-left px-4 py-2.5 text-xs font-medium text-zinc-500 uppercase tracking-wider">
-              Internal name
-            </th>
-            <th className="text-left px-4 py-2.5 text-xs font-medium text-zinc-500 uppercase tracking-wider">
-              User
+              Name
             </th>
             <th className="text-left px-4 py-2.5 text-xs font-medium text-zinc-500 uppercase tracking-wider">
               Size
@@ -638,15 +566,10 @@ function BucketList({
               className="border-b border-zinc-900 hover:bg-zinc-900/60 transition-colors"
             >
               <td className="px-4 py-3">
-                <span className="text-white text-sm font-medium">{b.display_name}</span>
-              </td>
-              <td className="px-4 py-3">
-                <code className="font-mono text-xs text-zinc-400">{b.name}</code>
-              </td>
-              <td className="px-4 py-3">
-                <code className="font-mono text-xs text-zinc-500">
-                  {b.user_id.slice(0, 12)}…
-                </code>
+                <span className="font-mono text-sm text-white">{b.name}</span>
+                {b.description && (
+                  <p className="text-xs text-zinc-500 mt-0.5 truncate max-w-[240px]">{b.description}</p>
+                )}
               </td>
               <td className="px-4 py-3">
                 <span className="text-zinc-400 text-sm tabular-nums">
@@ -682,11 +605,10 @@ function BucketList({
 // ─── System DB list ───────────────────────────────────────────────────────────
 
 const SYSTEM_DESCRIPTIONS: Record<string, string> = {
-  registry: "All database records and metadata for this instance",
-  control: "User accounts, API keys, and control-plane data",
+  store: "All database records and metadata for this instance",
 };
 
-const SYSTEM_DB_NAMES = ["registry", "control"];
+const SYSTEM_DB_NAMES = ["store"];
 
 function SystemList({ dbs }: { dbs: DbRecord[] }) {
   const dbMap = new Map(dbs.map((d) => [d.name, d]));
@@ -803,7 +725,6 @@ interface HomeClientProps {
   userDbs: DbRecord[];
   systemDbs: DbRecord[];
   buckets: BucketRecord[];
-  users: UserOption[];
   metrics: MetricsData | null;
 }
 
@@ -811,7 +732,6 @@ export function HomeClient({
   userDbs,
   systemDbs,
   buckets,
-  users,
   metrics,
 }: HomeClientProps) {
   const router = useRouter();
@@ -967,7 +887,6 @@ export function HomeClient({
       )}
       {FILES_ENABLED && showBucketModal && (
         <CreateBucketModal
-          users={users}
           onClose={() => setShowBucketModal(false)}
           onCreated={handleCreated}
         />
