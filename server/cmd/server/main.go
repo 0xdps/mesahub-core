@@ -14,17 +14,16 @@ import (
 	"github.com/rs/zerolog"
 	"github.com/rs/zerolog/log"
 
-	"github.com/0xdps/sqlite-hub/server/internal/auth"
-	"github.com/0xdps/sqlite-hub/server/internal/cache"
-	"github.com/0xdps/sqlite-hub/server/internal/config"
-	"github.com/0xdps/sqlite-hub/server/internal/control"
-	"github.com/0xdps/sqlite-hub/server/internal/db"
-	"github.com/0xdps/sqlite-hub/server/internal/files"
-	"github.com/0xdps/sqlite-hub/server/internal/handler"
-	"github.com/0xdps/sqlite-hub/server/internal/middleware"
-	"github.com/0xdps/sqlite-hub/server/internal/migrate"
-	"github.com/0xdps/sqlite-hub/server/internal/queue"
-	"github.com/0xdps/sqlite-hub/server/internal/telemetry"
+	"github.com/0xdps/sqlite-hub-template/auth"
+	"github.com/0xdps/sqlite-hub-template/cache"
+	"github.com/0xdps/sqlite-hub-template/config"
+	"github.com/0xdps/sqlite-hub-template/db"
+	"github.com/0xdps/sqlite-hub-template/files"
+	"github.com/0xdps/sqlite-hub-template/handler"
+	"github.com/0xdps/sqlite-hub-template/middleware"
+	"github.com/0xdps/sqlite-hub-template/migrate"
+	"github.com/0xdps/sqlite-hub-template/queue"
+	"github.com/0xdps/sqlite-hub-template/telemetry"
 )
 
 const version = "2.0.0-dev"
@@ -50,7 +49,6 @@ func main() {
 	}
 
 	log.Info().
-		Str("mode", string(cfg.Mode)).
 		Str("version", version).
 		Int("port", cfg.Port).
 		Msg("sqlite-hub server starting")
@@ -78,6 +76,7 @@ func main() {
 		log.Fatal().Err(err).Msg("registry open failed")
 	}
 	defer registry.Close()
+	auth.SetRegistry(registry)
 
 	// ── One-time data migrations ───────────────────────────────────────────────
 	if err := registry.RunOnce("strip-prefixes", func() error {
@@ -119,7 +118,6 @@ func main() {
 		})
 	})
 	r.Use(auth.CORS(cfg))
-	r.Use(auth.ControlPlaneStamper(cfg))
 	r.Use(auth.AdminStamper(cfg, cacheClient))
 
 	// ── Handlers ──────────────────────────────────────────────────────────────
@@ -133,12 +131,12 @@ func main() {
 	maintenanceH := handler.NewMaintenanceHandler(cfg, registry, fileStorage)
 	systemH := handler.NewSystemHandler(cfg)
 	authH := auth.NewHandler(cfg, cacheClient)
-	internalH := handler.NewInternalHandler(cacheClient)
-	bucketFilesH := handler.NewBucketFilesHandler(cfg, fileStorage, cacheClient)
+	apiKeysH := handler.NewAPIKeysHandler(registry)
+	bucketAdminH := handler.NewBucketAdminHandler(registry)
 
 	// Health + version — no auth required
 	r.Get("/api/health", handler.Health)
-	r.Get("/api/version", handler.NewVersion(version, string(cfg.Mode), cacheClient.Available()))
+	r.Get("/api/version", handler.NewVersion(version, cacheClient.Available()))
 
 	// Auth routes — public
 	r.Post("/api/auth/login", authH.Login)
@@ -146,12 +144,6 @@ func main() {
 	r.Group(func(r chi.Router) {
 		r.Use(auth.RequireAdmin)
 		r.Get("/api/auth/me", authH.Me)
-	})
-
-	// ── Internal control-plane callbacks (control → template only) ───────────
-	r.Group(func(r chi.Router) {
-		r.Use(auth.RequireControlPlane)
-		r.Delete("/api/internal/cache/apikey/{hash}", internalH.InvalidateAPIKey)
 	})
 
 	// ── Admin-only DB management ───────────────────────────────────────────────
@@ -171,6 +163,14 @@ func main() {
 		// System / internal databases — read-only browse access.
 		r.Get("/api/system/dbs", systemH.ListSystemDBs)
 		r.Post("/api/system/db/{name}/query", systemH.QuerySystemDB)
+		// Admin-managed API keys (shk_ prefix).
+		r.Post("/api/apikeys", apiKeysH.CreateAPIKey)
+		r.Get("/api/apikeys", apiKeysH.ListAPIKeys)
+		r.Delete("/api/apikeys/{id}", apiKeysH.RevokeAPIKey)
+		// Admin-managed buckets (local volume backend).
+		r.Get("/api/buckets", bucketAdminH.ListBuckets)
+		r.Post("/api/buckets", bucketAdminH.CreateBucket)
+		r.Delete("/api/buckets/{name}", bucketAdminH.DeleteBucket)
 	})
 
 	// ── Per-DB data endpoints (auth handled inside each handler) ──────────────
@@ -214,61 +214,6 @@ func main() {
 		}
 		r.ServeHTTP(w, req)
 	}))
-
-	// ── Control-mode routes (UUID-based API keys) ────────────────────────────
-	// All user management, plan enforcement, and provisioning is handled by
-	// the control plane (Next.js). The Go server only provides data access.
-	if cfg.Mode == config.ModeControl {
-		r.Post("/api/query/{ref}", queryH.QueryByUUID)
-		r.Post("/api/exec/{ref}", execH.ExecByUUID)
-		// Auto-REST UUID routes.
-		r.Get("/api/rest/{ref}/{table}", restH.GetByUUID)
-		r.Post("/api/rest/{ref}/{table}", restH.PostByUUID)
-		r.Patch("/api/rest/{ref}/{table}", restH.PatchByUUID)
-		r.Delete("/api/rest/{ref}/{table}", restH.DeleteByUUID)
-		if cfg.EnableFiles {
-			r.Get("/api/files/{ref}", filesH.ListByUUID)
-			r.Post("/api/files/{ref}", filesH.UploadByUUID)
-			r.Head("/api/files/{ref}/{id}", filesH.HeadFileByUUID)
-			r.Get("/api/files/{ref}/{id}", filesH.DownloadByUUID)
-			r.Delete("/api/files/{ref}/{id}", filesH.DeleteFileByUUID)
-		}
-
-		if cfg.EnableFiles && cfg.EnableBuckets {
-			// Bucket file routes — auth via shs_ API key scope (bucket:* or bucket:<name>).
-			// NOTE: presign/batch and bulk-delete must be registered before {id} routes.
-			r.Get("/api/buckets/{name}/files", bucketFilesH.List)
-			r.Post("/api/buckets/{name}/files", bucketFilesH.Upload)
-			r.Post("/api/buckets/{name}/files/presign/batch", bucketFilesH.PresignBatch)
-			r.Post("/api/buckets/{name}/files/bulk-delete", bucketFilesH.BulkDeleteFiles)
-			r.Head("/api/buckets/{name}/files/{id}", bucketFilesH.HeadFile)
-			r.Get("/api/buckets/{name}/files/{id}", bucketFilesH.Download)
-			r.Delete("/api/buckets/{name}/files/{id}", bucketFilesH.DeleteFile)
-			r.Get("/api/buckets/{name}/files/{id}/meta", bucketFilesH.Meta)
-			r.Post("/api/buckets/{name}/files/{id}/presign", bucketFilesH.PresignFile)
-		}
-
-		// Initialise control.db schema so that ValidateAPIKey can read it.
-		// The control plane writes user/key data here via the admin exec endpoint.
-		cdb, err := control.Open(cfg.DataPath)
-		if err != nil {
-			fmt.Fprintf(os.Stderr, "FATAL control DB open failed: %v (DATA_PATH=%s)\n", err, cfg.DataPath)
-			log.Fatal().Err(err).Str("data_path", cfg.DataPath).Msg("control DB open failed")
-		}
-		defer cdb.Close()
-		auth.SetControlDB(cdb)
-
-		// Register "control" in registry.db so the standard query/exec handlers
-		// can serve POST /api/db/control/query and /api/db/control/exec.
-		// These endpoints are used by the control plane (Next.js) to read/write
-		// user metadata. INSERT OR IGNORE makes this idempotent on restart.
-		if existing, _ := registry.GetDatabase("control"); existing == nil {
-			if _, err := registry.InsertDatabase("control", "_system", nil); err != nil {
-				log.Fatal().Err(err).Msg("control DB registry insert failed")
-			}
-			log.Info().Msg("registered 'control' database in registry")
-		}
-	}
 
 	// ── Server ────────────────────────────────────────────────────────────────
 	srv := &http.Server{

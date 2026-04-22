@@ -1,5 +1,5 @@
 import { SessionData, sessionOptions } from "@/lib/session";
-import { BUCKETS_ENABLED, FILES_ENABLED } from "@/lib/features";
+import { FILES_ENABLED } from "@/lib/features";
 import { getIronSession } from "iron-session";
 import { NextRequest, NextResponse } from "next/server";
 
@@ -70,7 +70,7 @@ export async function middleware(req: NextRequest) {
     return new NextResponse(null, { status: 404 });
   }
 
-  if (!BUCKETS_ENABLED && (BUCKET_PAGE_PATTERN.test(rewrittenPathname) || BUCKET_API_PATTERN.test(rewrittenPathname))) {
+  if (!FILES_ENABLED && (BUCKET_PAGE_PATTERN.test(rewrittenPathname) || BUCKET_API_PATTERN.test(rewrittenPathname))) {
     if (rewrittenPathname.startsWith("/api/")) {
       return NextResponse.json({ error: "Buckets are temporarily disabled" }, { status: 404 });
     }

@@ -1,6 +1,6 @@
 export const dynamic = "force-dynamic";
 
-import { BUCKETS_ENABLED } from "@/lib/features";
+import { FILES_ENABLED } from "@/lib/features";
 import { goFetchAdmin } from "@/lib/go-api";
 import { HomeClient } from "./home-client";
 
@@ -41,7 +41,7 @@ export default async function DashboardPage() {
   const [dbsRes, metricsRes, bucketsRes, usersRes] = await Promise.all([
     goFetchAdmin("/api/db").catch(() => null),
     goFetchAdmin("/api/metrics").catch(() => null),
-    BUCKETS_ENABLED
+    FILES_ENABLED
       ? goFetchAdmin("/api/system/db/control/query", {
           method: "POST",
           body: JSON.stringify({

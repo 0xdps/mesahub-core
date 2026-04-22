@@ -32,6 +32,35 @@ COPY server/ .
 RUN CGO_ENABLED=1 GOOS=linux go build -o sqlite-hub-server ./cmd/server
 
 # ─────────────────────────────────────────────────────────────────────────────
+# dashboard-dev — standalone Next.js dev server, no Go binary, no Caddy.
+# Used by docker-compose.saas.yml / docker-compose.full.yml where the Go API
+# runs as a separate container. Supports bind-mount HMR.
+# ─────────────────────────────────────────────────────────────────────────────
+FROM node:24-alpine AS dashboard-dev
+
+RUN apk add --no-cache curl python3 make g++ && \
+    corepack enable pnpm
+
+WORKDIR /app
+COPY dashboard/package.json dashboard/pnpm-lock.yaml ./
+RUN pnpm install --frozen-lockfile
+
+COPY dashboard/ .
+
+ENV NODE_ENV=development
+ENV NEXT_TELEMETRY_DISABLED=1
+ENV PORT=3000
+ENV HOSTNAME=0.0.0.0
+
+EXPOSE 3000
+
+HEALTHCHECK --interval=15s --timeout=5s --start-period=60s --retries=5 \
+  CMD curl -sf http://localhost:3000 || exit 1
+
+# --webpack: MDX + Turbopack schema conflicts (same as template/dashboard dev)
+CMD ["pnpm", "next", "dev", "--webpack", "--port", "3000", "--hostname", "0.0.0.0"]
+
+# ─────────────────────────────────────────────────────────────────────────────
 # Development stage — hot-reload via Next.js dev server
 # Must come before the production stage so that `docker build` (and Railway)
 # targets `production` by default (last stage wins).
