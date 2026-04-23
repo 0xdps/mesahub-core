@@ -14,8 +14,8 @@ import (
 	"crypto/rand"
 	"encoding/hex"
 
-	"github.com/0xdps/sqlite-hub-template/cache"
-	"github.com/0xdps/sqlite-hub-template/config"
+	"github.com/0xdps/mesahub-core/cache"
+	"github.com/0xdps/mesahub-core/config"
 )
 
 // IssueSession creates a new admin session and writes the cookie into w.

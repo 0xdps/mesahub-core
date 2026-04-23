@@ -6,7 +6,7 @@ import (
 
 	"github.com/go-chi/chi/v5"
 
-	"github.com/0xdps/sqlite-hub-template/handler"
+	"github.com/0xdps/mesahub-core/handler"
 )
 
 // queryRouter wires QueryHandler with admin-stamp middleware.
@@ -20,7 +20,7 @@ func queryRouter(e *testEnv) *chi.Mux {
 // seedQueryDB registers a db and seeds a table for query tests.
 func seedQueryDB(t *testing.T, e *testEnv, dbName string) {
 	t.Helper()
-	if _, err := e.registry.InsertDatabase(dbName, "tester", "admin", nil, nil, nil, ""); err != nil {
+	if _, err := e.registry.InsertDatabase("uuid-"+dbName, dbName, dbName, "tester", "admin", nil, nil); err != nil {
 		t.Fatalf("InsertDatabase: %v", err)
 	}
 	sqlDB, err := e.pool.Get(dbName)

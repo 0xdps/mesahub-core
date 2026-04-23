@@ -7,7 +7,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/0xdps/sqlite-hub-template/handler"
+	"github.com/0xdps/mesahub-core/handler"
 )
 
 // ── GET /api/health ───────────────────────────────────────────────────────────

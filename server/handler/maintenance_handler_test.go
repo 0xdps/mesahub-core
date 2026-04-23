@@ -6,7 +6,7 @@ import (
 
 	"github.com/go-chi/chi/v5"
 
-	"github.com/0xdps/sqlite-hub-template/handler"
+	"github.com/0xdps/mesahub-core/handler"
 )
 
 // maintenanceRouter wires MaintenanceHandler routes with admin-stamp middleware.

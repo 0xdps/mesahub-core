@@ -4,7 +4,7 @@ services:
     build:
       context: .
       target: development
-    container_name: sqlite-hub-dev
+    container_name: mesahub-dev
     command: /app/start.sh
     ports:
       # Random host port -> container :80
@@ -38,7 +38,7 @@ services:
       - MAX_SQL_BINDINGS=${MAX_SQL_BINDINGS:-5000}
     volumes:
       # Persistent data directory for SQLite DBs and file storage
-      - sqlite-hub-data:/data
+      - mesahub-data:/data
       # Dev mode: mount dashboard source code for hot reload
       - ./dashboard/src:/app/dashboard/src:ro
       - ./dashboard/public:/app/dashboard/public:ro
@@ -96,7 +96,7 @@ services:
       - MAX_SQL_BINDINGS=${MAX_SQL_BINDINGS:-5000}
     volumes:
       # Persistent data directory for SQLite DBs and file storage
-      - sqlite-hub-data:/data
+      - mesahub-data:/data
     restart: unless-stopped
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:80/api/health"]
@@ -106,7 +106,7 @@ services:
       start_period: 40s
 
 volumes:
-  sqlite-hub-data:
+  mesahub-data:
     driver: local
   node_modules:
   nextjs-cache:

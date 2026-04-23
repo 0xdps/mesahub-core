@@ -7,8 +7,8 @@ import (
 	"net/http"
 	"strings"
 
-	"github.com/0xdps/sqlite-hub-template/cache"
-	"github.com/0xdps/sqlite-hub-template/config"
+	"github.com/0xdps/mesahub-core/cache"
+	"github.com/0xdps/mesahub-core/config"
 )
 
 // AdminStamper is a global middleware that stamps X-Sqlite-Hub-Admin: 1 on

@@ -5,12 +5,12 @@ import (
 	"net/http"
 	"path/filepath"
 
-	"github.com/0xdps/sqlite-hub-template/config"
-	"github.com/0xdps/sqlite-hub-template/db"
-	"github.com/0xdps/sqlite-hub-template/files"
-	"github.com/0xdps/sqlite-hub-template/queue"
-	"github.com/0xdps/sqlite-hub-template/sysutil"
-	"github.com/0xdps/sqlite-hub-template/telemetry"
+	"github.com/0xdps/mesahub-core/config"
+	"github.com/0xdps/mesahub-core/db"
+	"github.com/0xdps/mesahub-core/files"
+	"github.com/0xdps/mesahub-core/queue"
+	"github.com/0xdps/mesahub-core/sysutil"
+	"github.com/0xdps/mesahub-core/telemetry"
 )
 
 // MetricsHandler holds deps for the metrics route.
@@ -44,8 +44,8 @@ func (h *MetricsHandler) Metrics(w http.ResponseWriter, r *http.Request) {
 	dbList := make([]dbInfo, 0, len(dbs))
 	var largest *dbInfo
 	for _, rec := range dbs {
-		sz := sysutil.FileSizeBytes(filepath.Join(h.cfg.DataPath, rec.Name+".db"))
-		dbList = append(dbList, dbInfo{Name: rec.Name, SizeBytes: sz})
+		sz := sysutil.FileSizeBytes(filepath.Join(h.cfg.DataPath, rec.Slug+".db"))
+		dbList = append(dbList, dbInfo{Name: rec.Slug, SizeBytes: sz})
 		if largest == nil || sz > largest.SizeBytes {
 			largest = &dbList[len(dbList)-1]
 		}

@@ -14,16 +14,16 @@ import (
 	"github.com/rs/zerolog"
 	"github.com/rs/zerolog/log"
 
-	"github.com/0xdps/sqlite-hub-template/auth"
-	"github.com/0xdps/sqlite-hub-template/cache"
-	"github.com/0xdps/sqlite-hub-template/config"
-	"github.com/0xdps/sqlite-hub-template/db"
-	"github.com/0xdps/sqlite-hub-template/files"
-	"github.com/0xdps/sqlite-hub-template/handler"
-	"github.com/0xdps/sqlite-hub-template/middleware"
-	"github.com/0xdps/sqlite-hub-template/migrate"
-	"github.com/0xdps/sqlite-hub-template/queue"
-	"github.com/0xdps/sqlite-hub-template/telemetry"
+	"github.com/0xdps/mesahub-core/auth"
+	"github.com/0xdps/mesahub-core/cache"
+	"github.com/0xdps/mesahub-core/config"
+	"github.com/0xdps/mesahub-core/db"
+	"github.com/0xdps/mesahub-core/files"
+	"github.com/0xdps/mesahub-core/handler"
+	"github.com/0xdps/mesahub-core/middleware"
+	"github.com/0xdps/mesahub-core/migrate"
+	"github.com/0xdps/mesahub-core/queue"
+	"github.com/0xdps/mesahub-core/telemetry"
 )
 
 const version = "2.0.0-dev"
@@ -77,6 +77,7 @@ func main() {
 	}
 	defer registry.Close()
 	auth.SetRegistry(registry)
+	registry.SetCache(cacheClient)
 
 	// ── One-time data migrations ───────────────────────────────────────────────
 	if err := registry.RunOnce("strip-prefixes", func() error {
@@ -132,7 +133,7 @@ func main() {
 	systemH := handler.NewSystemHandler(cfg)
 	authH := auth.NewHandler(cfg, cacheClient)
 	apiKeysH := handler.NewAPIKeysHandler(registry)
-	bucketAdminH := handler.NewBucketAdminHandler(registry)
+	bucketAdminH := handler.NewBucketAdminHandler(cfg, registry, fileStorage)
 
 	// Health + version — no auth required
 	r.Get("/api/health", handler.Health)
@@ -171,6 +172,12 @@ func main() {
 		r.Get("/api/buckets", bucketAdminH.ListBuckets)
 		r.Post("/api/buckets", bucketAdminH.CreateBucket)
 		r.Delete("/api/buckets/{name}", bucketAdminH.DeleteBucket)
+		if cfg.EnableFiles {
+			r.Get("/api/buckets/{name}/files", bucketAdminH.ListFiles)
+			r.Post("/api/buckets/{name}/files", bucketAdminH.UploadFile)
+			r.Get("/api/buckets/{name}/files/{id}", bucketAdminH.DownloadFile)
+			r.Delete("/api/buckets/{name}/files/{id}", bucketAdminH.DeleteFile)
+		}
 	})
 
 	// ── Per-DB data endpoints (auth handled inside each handler) ──────────────

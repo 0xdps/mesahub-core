@@ -8,11 +8,11 @@ import (
 	"github.com/go-chi/chi/v5"
 	"github.com/rs/zerolog/log"
 
-	"github.com/0xdps/sqlite-hub-template/auth"
-	"github.com/0xdps/sqlite-hub-template/cache"
-	"github.com/0xdps/sqlite-hub-template/config"
-	"github.com/0xdps/sqlite-hub-template/db"
-	"github.com/0xdps/sqlite-hub-template/filetoken"
+	"github.com/0xdps/mesahub-core/auth"
+	"github.com/0xdps/mesahub-core/cache"
+	"github.com/0xdps/mesahub-core/config"
+	"github.com/0xdps/mesahub-core/db"
+	"github.com/0xdps/mesahub-core/filetoken"
 )
 
 // TokensHandler holds dependencies for the token route group.

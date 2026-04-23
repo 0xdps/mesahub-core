@@ -1,4 +1,4 @@
-module github.com/0xdps/sqlite-hub-template
+module github.com/0xdps/mesahub-core
 
 go 1.24.4
 

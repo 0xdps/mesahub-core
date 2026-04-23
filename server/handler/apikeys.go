@@ -12,7 +12,7 @@ import (
 	"github.com/go-chi/chi/v5"
 	"github.com/google/uuid"
 
-	"github.com/0xdps/sqlite-hub-template/db"
+	"github.com/0xdps/mesahub-core/db"
 )
 
 // APIKeysHandler holds dependencies for the /api/apikeys route group.

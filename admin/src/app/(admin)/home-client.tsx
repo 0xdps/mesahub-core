@@ -608,7 +608,7 @@ const SYSTEM_DESCRIPTIONS: Record<string, string> = {
   store: "All database records and metadata for this instance",
 };
 
-const SYSTEM_DB_NAMES = ["store"];
+const SYSTEM_DB_NAMES = ["store", "accounts"];
 
 function SystemList({ dbs }: { dbs: DbRecord[] }) {
   const dbMap = new Map(dbs.map((d) => [d.name, d]));

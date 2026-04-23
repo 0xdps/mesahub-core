@@ -7,7 +7,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/0xdps/sqlite-hub-template/queue"
+	"github.com/0xdps/mesahub-core/queue"
 )
 
 // ── serial ordering ───────────────────────────────────────────────────────────

@@ -1,38 +1,57 @@
-// Package db — registry.go manages registry.db, the single source of truth
-// for all user databases on this instance. It mirrors registry.ts exactly.
+// Package db — registry.go manages store.db, the single source of truth
+// for all user databases on this instance.
 package db
 
 import (
+	"context"
 	"database/sql"
 	"encoding/json"
 	"fmt"
 	"os"
 	"path/filepath"
 	"time"
+
+	"github.com/0xdps/mesahub-core/cache"
 )
 
-// Registry wraps the shared registry.db connection.
+// Registry wraps the shared store.db connection.
 type Registry struct {
 	db       *sql.DB
 	dataPath string
+	cache    cache.Client // may be nil — set via SetCache
 }
 
 // DBRecord mirrors the `databases` table row.
 type DBRecord struct {
-	ID           int64
-	Name         string
-	Slug         sql.NullString
-	DisplayName  string
+	ID           string
+	Name         string // user-given display name
+	Slug         string // generated template-internal filename
+	Description  sql.NullString
 	Owner        string
 	Source       string
 	InstanceID   sql.NullString
-	Description  sql.NullString
-	CreatedAt    string
-	UpdatedAt    sql.NullString
 	Status       string
 	SizeBytes    int64
-	OriginalName sql.NullString
+	OriginalSlug sql.NullString // tracks pre-delete slug so restore can rename the file back
+	CreatedAt    string
+	UpdatedAt    sql.NullString
 	DeletedAt    sql.NullString
+}
+
+// BucketRecord mirrors the `buckets` table row.
+type BucketRecord struct {
+	ID          string
+	Name        string // user-given display name
+	Slug        string // generated template-internal filename
+	Description sql.NullString
+	Owner       string
+	Source      string
+	InstanceID  sql.NullString
+	Status      string
+	SizeBytes   int64
+	CreatedAt   string
+	UpdatedAt   sql.NullString
+	DeletedAt   sql.NullString
 }
 
 // AuditMetrics holds aggregated audit stats.
@@ -56,40 +75,40 @@ CREATE TABLE IF NOT EXISTS api_keys (
   created_at   TEXT NOT NULL DEFAULT (datetime('now'))
 );
 
-CREATE TABLE IF NOT EXISTS buckets (
-  id           TEXT PRIMARY KEY,
-  name         TEXT NOT NULL UNIQUE,
-  display_name TEXT NOT NULL,
-  description  TEXT,
-  owner        TEXT NOT NULL DEFAULT 'admin',
-  source       TEXT NOT NULL DEFAULT 'template',
-  slug         TEXT UNIQUE,
-  instance_id  TEXT,
-  status       TEXT NOT NULL DEFAULT 'active',
-  size_bytes   INTEGER NOT NULL DEFAULT 0,
-  created_at   TEXT NOT NULL DEFAULT (datetime('now'))
-);
-CREATE INDEX IF NOT EXISTS idx_buckets_owner ON buckets(owner);
-
 CREATE TABLE IF NOT EXISTS databases (
-  id             INTEGER PRIMARY KEY AUTOINCREMENT,
-  name           TEXT NOT NULL,
-  slug           TEXT UNIQUE,
-  display_name   TEXT NOT NULL DEFAULT '',
-  owner          TEXT NOT NULL DEFAULT 'admin',
-  source         TEXT NOT NULL DEFAULT 'template',
-  instance_id    TEXT,
-  description    TEXT,
-  status         TEXT NOT NULL DEFAULT 'active',
-  size_bytes     INTEGER NOT NULL DEFAULT 0,
-  original_name  TEXT,
-  created_at     DATETIME DEFAULT CURRENT_TIMESTAMP,
-  updated_at     TEXT,
-  deleted_at     DATETIME,
-  UNIQUE(owner, name)
+  id            TEXT PRIMARY KEY,
+  name          TEXT NOT NULL,
+  slug          TEXT NOT NULL UNIQUE,
+  description   TEXT,
+  owner         TEXT NOT NULL DEFAULT 'admin',
+  source        TEXT NOT NULL DEFAULT 'template',
+  instance_id   TEXT,
+  status        TEXT NOT NULL DEFAULT 'active',
+  size_bytes    INTEGER NOT NULL DEFAULT 0,
+  original_slug TEXT,
+  created_at    TEXT NOT NULL DEFAULT (datetime('now')),
+  updated_at    TEXT,
+  deleted_at    TEXT,
+  UNIQUE(owner, slug)
 );
 CREATE INDEX IF NOT EXISTS idx_databases_owner ON databases(owner);
-CREATE UNIQUE INDEX IF NOT EXISTS idx_databases_slug ON databases(slug) WHERE slug IS NOT NULL;
+
+CREATE TABLE IF NOT EXISTS buckets (
+  id          TEXT PRIMARY KEY,
+  name        TEXT NOT NULL,
+  slug        TEXT NOT NULL UNIQUE,
+  description TEXT,
+  owner       TEXT NOT NULL DEFAULT 'admin',
+  source      TEXT NOT NULL DEFAULT 'template',
+  instance_id TEXT,
+  status      TEXT NOT NULL DEFAULT 'active',
+  size_bytes  INTEGER NOT NULL DEFAULT 0,
+  created_at  TEXT NOT NULL DEFAULT (datetime('now')),
+  updated_at  TEXT,
+  deleted_at  TEXT,
+  UNIQUE(owner, slug)
+);
+CREATE INDEX IF NOT EXISTS idx_buckets_owner ON buckets(owner);
 
 CREATE TABLE IF NOT EXISTS file_token_revocations (
   token_id   TEXT PRIMARY KEY,
@@ -133,11 +152,153 @@ func OpenRegistry(dataPath string) (*Registry, error) {
 	if _, err := db.Exec(registrySchema); err != nil {
 		return nil, fmt.Errorf("registry: schema: %w", err)
 	}
-	return &Registry{db: db, dataPath: dataPath}, nil
+	reg := &Registry{db: db, dataPath: dataPath}
+	if err := reg.migrateUnifiedSchema(); err != nil {
+		return nil, fmt.Errorf("registry: migrate: %w", err)
+	}
+	return reg, nil
+}
+
+// migrateUnifiedSchema rebuilds `databases` and `buckets` from the old column
+// layout (display_name / integer PK) to the new unified layout.
+func (r *Registry) migrateUnifiedSchema() error {
+	return r.RunOnce("unified-schema-v1", func() error {
+		// ── databases ───────────────────────────────────────────────────────
+		// Old layout: id INTEGER PK, name=slug_filename, slug=uuid, display_name=user_name, original_name
+		// Detect by checking if `display_name` column still exists.
+		var hasDisplayName int
+		_ = r.db.QueryRow(
+			`SELECT COUNT(*) FROM pragma_table_info('databases') WHERE name = 'display_name'`,
+		).Scan(&hasDisplayName)
+
+		if hasDisplayName > 0 {
+			_, err := r.db.Exec(`
+				CREATE TABLE IF NOT EXISTS databases_new (
+					id            TEXT PRIMARY KEY,
+					name          TEXT NOT NULL,
+					slug          TEXT NOT NULL UNIQUE,
+					description   TEXT,
+					owner         TEXT NOT NULL DEFAULT 'admin',
+					source        TEXT NOT NULL DEFAULT 'template',
+					instance_id   TEXT,
+					status        TEXT NOT NULL DEFAULT 'active',
+					size_bytes    INTEGER NOT NULL DEFAULT 0,
+					original_slug TEXT,
+					created_at    TEXT NOT NULL DEFAULT (datetime('now')),
+					updated_at    TEXT,
+					deleted_at    TEXT,
+					UNIQUE(owner, slug)
+				);
+				INSERT INTO databases_new
+					SELECT
+						COALESCE(slug, lower(hex(randomblob(16)))),
+						COALESCE(NULLIF(display_name,''), name),
+						name,
+						description,
+						owner,
+						source,
+						instance_id,
+						status,
+						size_bytes,
+						original_name,
+						created_at,
+						updated_at,
+						deleted_at
+					FROM databases;
+				DROP TABLE databases;
+				ALTER TABLE databases_new RENAME TO databases;
+				CREATE INDEX IF NOT EXISTS idx_databases_owner ON databases(owner);
+			`)
+			if err != nil {
+				return fmt.Errorf("databases migration: %w", err)
+			}
+		}
+
+		// ── buckets ─────────────────────────────────────────────────────────
+		// Old layout: id TEXT PK, name=slug_filename, display_name=user_name, slug=dup_uuid
+		var bucketHasDisplayName int
+		_ = r.db.QueryRow(
+			`SELECT COUNT(*) FROM pragma_table_info('buckets') WHERE name = 'display_name'`,
+		).Scan(&bucketHasDisplayName)
+
+		if bucketHasDisplayName > 0 {
+			_, err := r.db.Exec(`
+				CREATE TABLE IF NOT EXISTS buckets_new (
+					id          TEXT PRIMARY KEY,
+					name        TEXT NOT NULL,
+					slug        TEXT NOT NULL UNIQUE,
+					description TEXT,
+					owner       TEXT NOT NULL DEFAULT 'admin',
+					source      TEXT NOT NULL DEFAULT 'template',
+					instance_id TEXT,
+					status      TEXT NOT NULL DEFAULT 'active',
+					size_bytes  INTEGER NOT NULL DEFAULT 0,
+					created_at  TEXT NOT NULL DEFAULT (datetime('now')),
+					updated_at  TEXT,
+					deleted_at  TEXT,
+					UNIQUE(owner, slug)
+				);
+				INSERT INTO buckets_new
+					SELECT
+						id,
+						display_name,
+						name,
+						description,
+						owner,
+						source,
+						instance_id,
+						status,
+						size_bytes,
+						created_at,
+						NULL,
+						NULL
+					FROM buckets;
+				DROP TABLE buckets;
+				ALTER TABLE buckets_new RENAME TO buckets;
+				CREATE INDEX IF NOT EXISTS idx_buckets_owner ON buckets(owner);
+			`)
+			if err != nil {
+				return fmt.Errorf("buckets migration: %w", err)
+			}
+		}
+
+		return nil
+	})
 }
 
 // Close shuts down the registry connection.
 func (r *Registry) Close() error { return r.db.Close() }
+
+// DB returns the underlying *sql.DB for the registry store. Used by
+// StoreHandler to serve raw-SQL access to store.db over HTTP.
+func (r *Registry) DB() *sql.DB { return r.db }
+
+// SetCache wires a cache.Client into the registry for list-operation caching.
+// Must be called before any ListDatabasesByOwner / ListBucketsByOwner calls
+// that should benefit from caching. Safe to call multiple times.
+func (r *Registry) SetCache(c cache.Client) { r.cache = c }
+
+// dbListKey returns the Redis key for a user's database list.
+func dbListKey(owner string) string { return "sh:dbs:" + owner }
+
+// bucketListKey returns the Redis key for a user's bucket list.
+func bucketListKey(owner string) string { return "sh:buckets:" + owner }
+
+const listCacheTTL = 5 * time.Minute
+
+// invalidateDBList removes the cached database list for owner, if any.
+func (r *Registry) invalidateDBList(owner string) {
+	if r.cache != nil {
+		_ = r.cache.DeleteKey(context.Background(), dbListKey(owner))
+	}
+}
+
+// invalidateBucketList removes the cached bucket list for owner, if any.
+func (r *Registry) invalidateBucketList(owner string) {
+	if r.cache != nil {
+		_ = r.cache.DeleteKey(context.Background(), bucketListKey(owner))
+	}
+}
 
 // RunOnce executes fn exactly once, identified by name. If name is already
 // recorded in schema_migrations, fn is skipped entirely. On success, the name
@@ -160,12 +321,12 @@ func (r *Registry) RunOnce(name string, fn func() error) error {
 
 // ── CRUD ─────────────────────────────────────────────────────────────────────
 
+const dbColumns = `id, name, slug, description, owner, source, instance_id, status, size_bytes, original_slug, created_at, updated_at, deleted_at`
+
 // ListDatabases returns all non-deleted databases ordered by created_at desc.
 func (r *Registry) ListDatabases() ([]DBRecord, error) {
 	rows, err := r.db.Query(
-		`SELECT id, name, slug, display_name, owner, source, instance_id, description,
-		        created_at, updated_at, status, size_bytes, original_name, deleted_at
-		 FROM databases WHERE status != 'deleted' ORDER BY created_at DESC`)
+		`SELECT ` + dbColumns + ` FROM databases WHERE status != 'deleted' ORDER BY created_at DESC`)
 	if err != nil {
 		return nil, err
 	}
@@ -173,12 +334,19 @@ func (r *Registry) ListDatabases() ([]DBRecord, error) {
 	return scanDBRecords(rows)
 }
 
-// GetDatabase returns the database record for name (any status).
-func (r *Registry) GetDatabase(name string) (*DBRecord, error) {
-	row := r.db.QueryRow(
-		`SELECT id, name, slug, display_name, owner, source, instance_id, description,
-		        created_at, updated_at, status, size_bytes, original_name, deleted_at
-		 FROM databases WHERE name = ?`, name)
+// GetDatabase returns the database record by slug (template-internal filename).
+func (r *Registry) GetDatabase(slug string) (*DBRecord, error) {
+	row := r.db.QueryRow(`SELECT `+dbColumns+` FROM databases WHERE slug = ?`, slug)
+	rec, err := scanDBRecord(row)
+	if err == sql.ErrNoRows {
+		return nil, nil
+	}
+	return rec, err
+}
+
+// GetDatabaseByID returns the database record by its UUID primary key.
+func (r *Registry) GetDatabaseByID(id string) (*DBRecord, error) {
+	row := r.db.QueryRow(`SELECT `+dbColumns+` FROM databases WHERE id = ?`, id)
 	rec, err := scanDBRecord(row)
 	if err == sql.ErrNoRows {
 		return nil, nil
@@ -187,37 +355,37 @@ func (r *Registry) GetDatabase(name string) (*DBRecord, error) {
 }
 
 // InsertDatabase creates a new database record.
-// slug is the control-plane UUID (SaaS mode) or nil (template mode).
-// displayName is the human-readable label; defaults to name when empty.
-func (r *Registry) InsertDatabase(name, owner, source string, instanceID *string, description *string, slug *string, displayName string) (*DBRecord, error) {
-	dn := displayName
-	if dn == "" {
-		dn = name
-	}
+// id is a UUID; name is the user-given label; slug is the template-internal filename.
+func (r *Registry) InsertDatabase(id, name, slug, owner, source string, instanceID *string, description *string) (*DBRecord, error) {
 	_, err := r.db.Exec(
-		`INSERT INTO databases (name, slug, display_name, owner, source, instance_id, description) VALUES (?, ?, ?, ?, ?, ?, ?)`,
-		name, strPtr(slug), dn, owner, source, strPtr(instanceID), strPtr(description))
+		`INSERT INTO databases (id, name, slug, owner, source, instance_id, description) VALUES (?, ?, ?, ?, ?, ?, ?)`,
+		id, name, slug, owner, source, strPtr(instanceID), strPtr(description))
 	if err != nil {
 		return nil, err
 	}
-	return r.GetDatabase(name)
+	r.invalidateDBList(owner)
+	return r.GetDatabase(slug)
 }
 
 // SetDatabaseStatus updates the status field to 'active' or 'inactive'.
-func (r *Registry) SetDatabaseStatus(name, status string) error {
-	_, err := r.db.Exec(`UPDATE databases SET status = ? WHERE name = ?`, status, name)
+func (r *Registry) SetDatabaseStatus(slug, status string) error {
+	rec, _ := r.GetDatabase(slug)
+	_, err := r.db.Exec(`UPDATE databases SET status = ? WHERE slug = ?`, status, slug)
+	if err == nil && rec != nil {
+		r.invalidateDBList(rec.Owner)
+	}
 	return err
 }
 
 // SoftDeleteDatabase renames the DB file and marks the record as deleted.
-// Mirrors softDeleteDatabase() in registry.ts.
-func (r *Registry) SoftDeleteDatabase(pool *Pool, name string) error {
+// The current slug is stored in original_slug so Restore can rename the file back.
+func (r *Registry) SoftDeleteDatabase(pool *Pool, slug string) error {
 	epoch := time.Now().Unix()
-	newName := fmt.Sprintf("%s-%d", name, epoch)
+	newSlug := fmt.Sprintf("%s-%d", slug, epoch)
 
 	// Rename the DB file (and WAL/SHM sidecars) if they exist.
-	oldBase := filepath.Join(r.dataPath, name+".db")
-	newBase := filepath.Join(r.dataPath, newName+".db")
+	oldBase := filepath.Join(r.dataPath, slug+".db")
+	newBase := filepath.Join(r.dataPath, newSlug+".db")
 	for _, suffix := range []string{"", "-wal", "-shm"} {
 		old := oldBase + suffix
 		nw := newBase + suffix
@@ -230,57 +398,79 @@ func (r *Registry) SoftDeleteDatabase(pool *Pool, name string) error {
 
 	// Close pool connection so WAL is checkpointed before rename.
 	pool.mu.Lock()
-	if db, ok := pool.conns[name]; ok {
+	if db, ok := pool.conns[slug]; ok {
 		_ = db.Close()
-		delete(pool.conns, name)
+		delete(pool.conns, slug)
 	}
 	pool.mu.Unlock()
 
+	rec, _ := r.GetDatabase(slug)
 	_, err := r.db.Exec(
 		`UPDATE databases
-		 SET name = ?, original_name = ?, status = 'deleted', deleted_at = datetime('now')
-		 WHERE name = ?`,
-		newName, name, name)
+		 SET slug = ?, original_slug = ?, status = 'deleted', deleted_at = datetime('now')
+		 WHERE slug = ?`,
+		newSlug, slug, slug)
+	if err == nil && rec != nil {
+		r.invalidateDBList(rec.Owner)
+	}
 	return err
 }
 
-// GetDatabaseBySlug returns a database record by its slug.
-func (r *Registry) GetDatabaseBySlug(slug string) (*DBRecord, error) {
-	row := r.db.QueryRow(
-		`SELECT id, name, slug, display_name, owner, source, instance_id, description,
-		        created_at, updated_at, status, size_bytes, original_name, deleted_at
-		 FROM databases WHERE slug = ?`, slug)
-	rec, err := scanDBRecord(row)
-	if err == sql.ErrNoRows {
-		return nil, nil
-	}
-	return rec, err
-}
-
 // ListDatabasesByOwner returns all non-deleted databases for a given owner.
+// Results are cached in Redis (if available) for listCacheTTL. The cache is
+// set on read and invalidated on any mutation that changes the list.
 func (r *Registry) ListDatabasesByOwner(owner string) ([]DBRecord, error) {
+	if r.cache != nil {
+		var cached []DBRecord
+		hit, err := r.cache.GetJSON(context.Background(), dbListKey(owner), &cached)
+		if err == nil && hit {
+			return cached, nil
+		}
+	}
+
 	rows, err := r.db.Query(
-		`SELECT id, name, slug, display_name, owner, source, instance_id, description,
-		        created_at, updated_at, status, size_bytes, original_name, deleted_at
-		 FROM databases WHERE owner = ? AND status != 'deleted' ORDER BY created_at DESC`, owner)
+		`SELECT `+dbColumns+` FROM databases WHERE owner = ? AND status != 'deleted' ORDER BY created_at DESC`, owner)
 	if err != nil {
 		return nil, err
 	}
 	defer rows.Close()
-	return scanDBRecords(rows)
+	result, err := scanDBRecords(rows)
+	if err != nil {
+		return nil, err
+	}
+
+	if r.cache != nil {
+		_ = r.cache.SetJSON(context.Background(), dbListKey(owner), result, listCacheTTL)
+	}
+	return result, nil
 }
 
 // ListBucketsByOwner returns all active buckets for a given owner.
+// Results are cached in Redis (if available) for listCacheTTL.
 func (r *Registry) ListBucketsByOwner(owner string) ([]BucketRecord, error) {
+	if r.cache != nil {
+		var cached []BucketRecord
+		hit, err := r.cache.GetJSON(context.Background(), bucketListKey(owner), &cached)
+		if err == nil && hit {
+			return cached, nil
+		}
+	}
+
 	rows, err := r.db.Query(
-		`SELECT id, name, display_name, description, owner, source, slug, instance_id,
-		        status, size_bytes, created_at
-		 FROM buckets WHERE owner = ? AND status = 'active' ORDER BY created_at DESC`, owner)
+		`SELECT `+bucketColumns+` FROM buckets WHERE owner = ? AND status != 'deleted' ORDER BY created_at DESC`, owner)
 	if err != nil {
 		return nil, err
 	}
 	defer rows.Close()
-	return scanBucketRecords(rows)
+	result, err := scanBucketRecords(rows)
+	if err != nil {
+		return nil, err
+	}
+
+	if r.cache != nil {
+		_ = r.cache.SetJSON(context.Background(), bucketListKey(owner), result, listCacheTTL)
+	}
+	return result, nil
 }
 
 // ListAPIKeysByOwner returns all active API keys for a given owner.
@@ -299,9 +489,7 @@ func (r *Registry) ListAPIKeysByOwner(owner string) ([]APIKeyRecord, error) {
 // ListDeletedDatabases returns all soft-deleted databases.
 func (r *Registry) ListDeletedDatabases() ([]DBRecord, error) {
 	rows, err := r.db.Query(
-		`SELECT id, name, slug, display_name, owner, source, instance_id, description,
-		        created_at, updated_at, status, size_bytes, original_name, deleted_at
-		 FROM databases WHERE status = 'deleted' ORDER BY deleted_at DESC`)
+		`SELECT ` + dbColumns + ` FROM databases WHERE status = 'deleted' ORDER BY deleted_at DESC`)
 	if err != nil {
 		return nil, err
 	}
@@ -310,18 +498,18 @@ func (r *Registry) ListDeletedDatabases() ([]DBRecord, error) {
 }
 
 // RestoreDatabase un-deletes a soft-deleted database.
-func (r *Registry) RestoreDatabase(pool *Pool, deletedName string) (*DBRecord, error) {
-	rec, err := r.GetDatabase(deletedName)
+func (r *Registry) RestoreDatabase(pool *Pool, deletedSlug string) (*DBRecord, error) {
+	rec, err := r.GetDatabase(deletedSlug)
 	if err != nil {
 		return nil, err
 	}
-	if rec == nil || rec.Status != "deleted" || !rec.OriginalName.Valid {
-		return nil, fmt.Errorf("database %q not found or not in deleted state", deletedName)
+	if rec == nil || rec.Status != "deleted" || !rec.OriginalSlug.Valid {
+		return nil, fmt.Errorf("database %q not found or not in deleted state", deletedSlug)
 	}
 
-	originalName := rec.OriginalName.String
-	oldBase := filepath.Join(r.dataPath, deletedName+".db")
-	newBase := filepath.Join(r.dataPath, originalName+".db")
+	originalSlug := rec.OriginalSlug.String
+	oldBase := filepath.Join(r.dataPath, deletedSlug+".db")
+	newBase := filepath.Join(r.dataPath, originalSlug+".db")
 	for _, suffix := range []string{"", "-wal", "-shm"} {
 		old := oldBase + suffix
 		nw := newBase + suffix
@@ -333,25 +521,26 @@ func (r *Registry) RestoreDatabase(pool *Pool, deletedName string) (*DBRecord, e
 	}
 
 	_, err = r.db.Exec(
-		`UPDATE databases SET name = ?, original_name = NULL, status = 'active', deleted_at = NULL WHERE name = ?`,
-		originalName, deletedName)
+		`UPDATE databases SET slug = ?, original_slug = NULL, status = 'active', deleted_at = NULL WHERE slug = ?`,
+		originalSlug, deletedSlug)
 	if err != nil {
 		return nil, err
 	}
-	return r.GetDatabase(originalName)
+	r.invalidateDBList(rec.Owner)
+	return r.GetDatabase(originalSlug)
 }
 
 // HardDeleteDatabase permanently removes a soft-deleted database.
-func (r *Registry) HardDeleteDatabase(deletedName string) error {
-	rec, err := r.GetDatabase(deletedName)
+func (r *Registry) HardDeleteDatabase(deletedSlug string) error {
+	rec, err := r.GetDatabase(deletedSlug)
 	if err != nil {
 		return err
 	}
 	if rec == nil || rec.Status != "deleted" {
-		return fmt.Errorf("database %q not found or not in deleted state", deletedName)
+		return fmt.Errorf("database %q not found or not in deleted state", deletedSlug)
 	}
 
-	dbPath := filepath.Join(r.dataPath, deletedName+".db")
+	dbPath := filepath.Join(r.dataPath, deletedSlug+".db")
 	for _, suffix := range []string{"", "-wal", "-shm"} {
 		f := dbPath + suffix
 		if err := os.Remove(f); err != nil && !os.IsNotExist(err) {
@@ -359,7 +548,10 @@ func (r *Registry) HardDeleteDatabase(deletedName string) error {
 		}
 	}
 
-	_, err = r.db.Exec(`DELETE FROM databases WHERE name = ?`, deletedName)
+	_, err = r.db.Exec(`DELETE FROM databases WHERE slug = ?`, deletedSlug)
+	if err == nil {
+		r.invalidateDBList(rec.Owner)
+	}
 	return err
 }
 
@@ -533,38 +725,24 @@ func (r *Registry) TouchAPIKey(id string) error {
 
 // ── Buckets ───────────────────────────────────────────────────────────────────
 
-// BucketRecord is a row from the buckets table.
-type BucketRecord struct {
-	ID          string
-	Name        string
-	DisplayName string
-	Description sql.NullString
-	Owner       string
-	Source      string
-	Slug        sql.NullString
-	InstanceID  sql.NullString
-	Status      string
-	SizeBytes   int64
-	CreatedAt   string
-}
+const bucketColumns = `id, name, slug, description, owner, source, instance_id, status, size_bytes, created_at, updated_at, deleted_at`
 
 // InsertBucket creates a new bucket record.
-func (r *Registry) InsertBucket(id, name, displayName, owner, source string, instanceID *string, description *string) (*BucketRecord, error) {
+// id is a UUID; name is the user-given label; slug is the template-internal filename.
+func (r *Registry) InsertBucket(id, name, slug, owner, source string, instanceID *string, description *string) (*BucketRecord, error) {
 	_, err := r.db.Exec(
-		`INSERT INTO buckets (id, name, display_name, owner, source, instance_id, description) VALUES (?, ?, ?, ?, ?, ?, ?)`,
-		id, name, displayName, owner, source, strPtr(instanceID), strPtr(description))
+		`INSERT INTO buckets (id, name, slug, owner, source, instance_id, description) VALUES (?, ?, ?, ?, ?, ?, ?)`,
+		id, name, slug, owner, source, strPtr(instanceID), strPtr(description))
 	if err != nil {
 		return nil, err
 	}
-	return r.GetBucket(name)
+	r.invalidateBucketList(owner)
+	return r.GetBucket(slug)
 }
 
 // GetBucketByID returns a bucket record by its UUID primary key.
 func (r *Registry) GetBucketByID(id string) (*BucketRecord, error) {
-	row := r.db.QueryRow(
-		`SELECT id, name, display_name, description, owner, source, slug, instance_id,
-		        status, size_bytes, created_at
-		 FROM buckets WHERE id = ?`, id)
+	row := r.db.QueryRow(`SELECT `+bucketColumns+` FROM buckets WHERE id = ?`, id)
 	rec, err := scanBucketRecord(row)
 	if err == sql.ErrNoRows {
 		return nil, nil
@@ -572,25 +750,9 @@ func (r *Registry) GetBucketByID(id string) (*BucketRecord, error) {
 	return rec, err
 }
 
-// GetBucketBySlug returns a bucket record by its slug (control-plane UUID).
-func (r *Registry) GetBucketBySlug(slug string) (*BucketRecord, error) {
-	row := r.db.QueryRow(
-		`SELECT id, name, display_name, description, owner, source, slug, instance_id,
-		        status, size_bytes, created_at
-		 FROM buckets WHERE slug = ?`, slug)
-	rec, err := scanBucketRecord(row)
-	if err == sql.ErrNoRows {
-		return nil, nil
-	}
-	return rec, err
-}
-
-// GetBucket returns a bucket record by name.
-func (r *Registry) GetBucket(name string) (*BucketRecord, error) {
-	row := r.db.QueryRow(
-		`SELECT id, name, display_name, description, owner, source, slug, instance_id,
-		        status, size_bytes, created_at
-		 FROM buckets WHERE name = ?`, name)
+// GetBucket returns a bucket record by slug (template-internal filename).
+func (r *Registry) GetBucket(slug string) (*BucketRecord, error) {
+	row := r.db.QueryRow(`SELECT `+bucketColumns+` FROM buckets WHERE slug = ?`, slug)
 	rec, err := scanBucketRecord(row)
 	if err == sql.ErrNoRows {
 		return nil, nil
@@ -601,9 +763,7 @@ func (r *Registry) GetBucket(name string) (*BucketRecord, error) {
 // ListBuckets returns all active buckets.
 func (r *Registry) ListBuckets() ([]BucketRecord, error) {
 	rows, err := r.db.Query(
-		`SELECT id, name, display_name, description, owner, source, slug, instance_id,
-		        status, size_bytes, created_at
-		 FROM buckets WHERE status = 'active' ORDER BY created_at DESC`)
+		`SELECT ` + bucketColumns + ` FROM buckets WHERE status = 'active' ORDER BY created_at DESC`)
 	if err != nil {
 		return nil, err
 	}
@@ -612,15 +772,19 @@ func (r *Registry) ListBuckets() ([]BucketRecord, error) {
 }
 
 // DeleteBucket marks a bucket as deleted.
-func (r *Registry) DeleteBucket(name string) error {
-	_, err := r.db.Exec(`UPDATE buckets SET status = 'deleted' WHERE name = ?`, name)
+func (r *Registry) DeleteBucket(slug string) error {
+	rec, _ := r.GetBucket(slug)
+	_, err := r.db.Exec(`UPDATE buckets SET status = 'deleted', deleted_at = datetime('now') WHERE slug = ?`, slug)
+	if err == nil && rec != nil {
+		r.invalidateBucketList(rec.Owner)
+	}
 	return err
 }
 
 // UpdateBucketSize increments the stored size_bytes for a bucket.
-func (r *Registry) UpdateBucketSize(name string, delta int64) error {
+func (r *Registry) UpdateBucketSize(slug string, delta int64) error {
 	_, err := r.db.Exec(
-		`UPDATE buckets SET size_bytes = MAX(0, size_bytes + ?) WHERE name = ?`, delta, name)
+		`UPDATE buckets SET size_bytes = MAX(0, size_bytes + ?) WHERE slug = ?`, delta, slug)
 	return err
 }
 
@@ -635,9 +799,12 @@ func strPtr(s *string) any {
 
 func scanDBRecord(row *sql.Row) (*DBRecord, error) {
 	var r DBRecord
+	// column order matches dbColumns const:
+	// id, name, slug, description, owner, source, instance_id, status, size_bytes, original_slug, created_at, updated_at, deleted_at
 	err := row.Scan(
-		&r.ID, &r.Name, &r.Slug, &r.DisplayName, &r.Owner, &r.Source, &r.InstanceID, &r.Description,
-		&r.CreatedAt, &r.UpdatedAt, &r.Status, &r.SizeBytes, &r.OriginalName, &r.DeletedAt)
+		&r.ID, &r.Name, &r.Slug, &r.Description,
+		&r.Owner, &r.Source, &r.InstanceID, &r.Status, &r.SizeBytes,
+		&r.OriginalSlug, &r.CreatedAt, &r.UpdatedAt, &r.DeletedAt)
 	if err != nil {
 		return nil, err
 	}
@@ -649,8 +816,9 @@ func scanDBRecords(rows *sql.Rows) ([]DBRecord, error) {
 	for rows.Next() {
 		var r DBRecord
 		if err := rows.Scan(
-			&r.ID, &r.Name, &r.Slug, &r.DisplayName, &r.Owner, &r.Source, &r.InstanceID, &r.Description,
-			&r.CreatedAt, &r.UpdatedAt, &r.Status, &r.SizeBytes, &r.OriginalName, &r.DeletedAt); err != nil {
+			&r.ID, &r.Name, &r.Slug, &r.Description,
+			&r.Owner, &r.Source, &r.InstanceID, &r.Status, &r.SizeBytes,
+			&r.OriginalSlug, &r.CreatedAt, &r.UpdatedAt, &r.DeletedAt); err != nil {
 			return nil, err
 		}
 		out = append(out, r)
@@ -685,9 +853,12 @@ func scanAPIKeyRecords(rows *sql.Rows) ([]APIKeyRecord, error) {
 
 func scanBucketRecord(row *sql.Row) (*BucketRecord, error) {
 	var r BucketRecord
-	err := row.Scan(&r.ID, &r.Name, &r.DisplayName, &r.Description,
-		&r.Owner, &r.Source, &r.Slug, &r.InstanceID,
-		&r.Status, &r.SizeBytes, &r.CreatedAt)
+	// column order matches bucketColumns const:
+	// id, name, slug, description, owner, source, instance_id, status, size_bytes, created_at, updated_at, deleted_at
+	err := row.Scan(
+		&r.ID, &r.Name, &r.Slug, &r.Description,
+		&r.Owner, &r.Source, &r.InstanceID,
+		&r.Status, &r.SizeBytes, &r.CreatedAt, &r.UpdatedAt, &r.DeletedAt)
 	if err != nil {
 		return nil, err
 	}
@@ -698,9 +869,10 @@ func scanBucketRecords(rows *sql.Rows) ([]BucketRecord, error) {
 	var out []BucketRecord
 	for rows.Next() {
 		var r BucketRecord
-		if err := rows.Scan(&r.ID, &r.Name, &r.DisplayName, &r.Description,
-			&r.Owner, &r.Source, &r.Slug, &r.InstanceID,
-			&r.Status, &r.SizeBytes, &r.CreatedAt); err != nil {
+		if err := rows.Scan(
+			&r.ID, &r.Name, &r.Slug, &r.Description,
+			&r.Owner, &r.Source, &r.InstanceID,
+			&r.Status, &r.SizeBytes, &r.CreatedAt, &r.UpdatedAt, &r.DeletedAt); err != nil {
 			return nil, err
 		}
 		out = append(out, r)

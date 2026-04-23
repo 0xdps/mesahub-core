@@ -11,9 +11,9 @@ import (
 	"strings"
 	"time"
 
-	"github.com/0xdps/sqlite-hub-template/cache"
-	"github.com/0xdps/sqlite-hub-template/config"
-	"github.com/0xdps/sqlite-hub-template/db"
+	"github.com/0xdps/mesahub-core/cache"
+	"github.com/0xdps/mesahub-core/config"
+	"github.com/0xdps/mesahub-core/db"
 )
 
 // apiKeyTTL is how long a validated API key result is cached.

@@ -1,0 +1,29 @@
+# Context: monorepo root (.)
+# Only core/admin/, core/server/, core/start.sh, core/supervisord.conf, and packages/ are needed.
+
+# Exclude all node_modules and build artefacts everywhere
+**/node_modules
+**/.next
+**/.turbo
+**/.git
+**/.github
+**/*.log
+**/.env*
+**/tmp-db
+
+# Exclude other services — not needed for core builds
+cloud/
+dashboard/
+
+# Exclude test files and local binaries in server
+core/server/**/*.test.go
+core/server/cmd/server/server
+
+# Exclude docs and misc
+_docs/
+*.md
+justfile
+go.work
+go.work.sum
+docker-compose*.yml
+.dockerignore

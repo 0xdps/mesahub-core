@@ -21,11 +21,11 @@ if [ "$NODE_ENV" = "development" ]; then
     mkdir -p /data /data/files/blobs
 
     echo "Starting Go server on :$GO_PORT ..."
-    PORT=$GO_PORT /app/server/sqlite-hub-server &
+    PORT=$GO_PORT /app/server/mesahub-server &
     GO_PID=$!
 
     echo "Starting Next.js dev server on :$NEXTJS_PORT ..."
-    cd /app/dashboard && PORT=$NEXTJS_PORT pnpm next dev --turbopack --port $NEXTJS_PORT --hostname 0.0.0.0 &
+    cd /app/dashboard && PORT=$NEXTJS_PORT pnpm next dev --port $NEXTJS_PORT --hostname 0.0.0.0 &
     NEXTJS_PID=$!
 
     echo "Waiting for Go server ..."
@@ -126,8 +126,8 @@ else
         exit 1
     fi
 
-    if [ ! -f /app/server/sqlite-hub-server ]; then
-        echo "Go server binary not found at /app/server/sqlite-hub-server"
+    if [ ! -f /app/server/mesahub-server ]; then
+        echo "Go server binary not found at /app/server/mesahub-server"
         exit 1
     fi
 
@@ -147,7 +147,7 @@ else
         exit 1
     fi
 
-    PORT=$GO_PORT supervisord -c /etc/supervisor/conf.d/sqlite-hub.conf &
+    PORT=$GO_PORT supervisord -c /etc/supervisor/conf.d/mesahub.conf &
     SUPERVISOR_PID=$!
 
     echo "Waiting for Go server on :$GO_PORT ..."

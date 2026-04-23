@@ -1,8 +1,8 @@
 # SQLite Hub runtime commands
 # Install: brew install just
 
-DEFAULT_PORT := env_var_or_default('SQLITE_HUB_PORT', '8080')
-PORTLESS_ALIAS := "sqlite-hub"
+DEFAULT_PORT := env_var_or_default('MESAHUB_PORT', '8080')
+PORTLESS_ALIAS := "mesahub"
 PORTLESS_PROXY_PORT := "1355"
 DEV_SERVICE := "app-dev"
 PROD_SERVICE := "app-prod"
@@ -206,7 +206,7 @@ dev-clean:
     else
       docker compose --profile dev --profile prod down -v --remove-orphans || true
     fi
-    docker rm -f sqlite-hub sqlite-hub-dev sqlite-hub-prod app app-dev app-prod >/dev/null 2>&1 || true
+    docker rm -f mesahub mesahub-dev mesahub-prod app app-dev app-prod >/dev/null 2>&1 || true
     npx portless alias --remove {{PORTLESS_ALIAS}} >/dev/null 2>&1 || true
     echo "✅ development artifacts cleaned"
 

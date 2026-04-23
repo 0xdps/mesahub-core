@@ -1,9 +1,9 @@
-# sqlite-hub-template — Copilot Instructions
+# mesahub core — Copilot Instructions
 
 ## What this service is
 The **self-hosted SQLite service** deployed to Railway. It owns:
 - The Go HTTP server (`server/`) that handles all API requests
-- The Next.js dashboard (`dashboard/`) for browsing databases in a browser
+- The Next.js admin UI (`admin/`) for browsing databases in a browser
 - The persistent volume at `/data` that holds every `.db` file
 
 ---
@@ -12,8 +12,8 @@ The **self-hosted SQLite service** deployed to Railway. It owns:
 
 | Layer | Owns | Does NOT own |
 |---|---|---|
-| Go server | All `.db` files on disk, schema, auth, API | Billing logic, user-facing UI |
-| Next.js dashboard | Read-only database browser UI | Writing to control.db, managing users |
+| Go server | All `.db` files on disk, schema, auth, API | Billing logic, user-facing subscription UI |
+| Next.js admin | Read-only database browser UI | Writing to store.db, managing users |
 
 ---
 
@@ -26,8 +26,7 @@ The **self-hosted SQLite service** deployed to Railway. It owns:
 | Package | Purpose |
 |---|---|
 | `internal/config` | Config struct + env var loading |
-| `internal/db` | Pool (per-db connections), Registry (registry.db) |
-| `internal/control` | control.db — schema owner, typed query helpers |
+| `internal/db` | Pool (per-db connections), Registry (store.db) |
 | `internal/queue` | Per-db serialised write queue |
 | `internal/files` | File storage + metadata DB |
 | `internal/filetoken` | HMAC-SHA256 file access tokens |
@@ -45,22 +44,30 @@ present.
 
 ### Auth model
 - **Admin** — `ADMIN_TOKEN` bearer → `x-sqlite-hub-admin: 1` → full access
-- **API keys** — `shs_` prefix, stored as SHA-256 hash in `api_keys` table of `control.db`
+- **API keys** — `shs_` prefix, stored as SHA-256 hash in `api_keys` table of `store.db`
 - **Service secrets** — `sv_` prefix, different code path; never use `shs_` for service secrets
 - `auth.AuthorizeDB(r, cfg, rec)` returns `(int, string)` — `0` means authorised
 
-### control.db schema ownership
-**`internal/control/db.go` is the single source of truth for the entire control.db schema.**
+### store.db schema ownership
+**`db/registry.go` is the single source of truth for the entire `store.db` schema.**
 - All `CREATE TABLE IF NOT EXISTS` and `CREATE INDEX IF NOT EXISTS` statements live here
 - The `migrations` slice contains additive `ALTER TABLE` statements for already-deployed instances
-- `control.Open()` runs on process start — every table (core + billing) is guaranteed to exist before the first request
-- Billing tables (`plans`, `prices`, `webhook_log`, `subscriptions`) are declared here even though the Go server never queries them — they are used by the control app over HTTP
-- Never split schema DDL between this file and any other service
+- Schema is guaranteed to exist before the first request
 
-### Database naming
-- User databases: `D-<userpart>-<dbname>` slug format
-- Bucket slugs: `B-<userpart>-<bucketname>`
-- DB name regex: `^[A-Za-z0-9_-]+$`
+### store.db tables
+| Table | Key columns | Notes |
+|---|---|---|
+| `databases` | `id` (INTEGER PK), `slug` (UUID), `name` (filename), `display_name`, `owner` (user ID), `status` | `slug` is the frontend identifier |
+| `buckets` | `id` (TEXT PK), `name`, `display_name`, `owner`, `status` | |
+| `api_keys` | `id`, `key_hash`, `scopes` (JSON), `owner` (user ID), `status` | Column is `owner`, not `user_id` |
+| `file_token_revocations` | `jti`, `expires_at` | |
+| `audit_events` | `id`, `db_name`, `event_type`, `actor` | |
+
+### Database HTTP endpoints (exposed for dashboard)
+| Endpoint | Access | Purpose |
+|---|---|---|
+| `POST /api/db/store/query` | Admin | SELECT queries against store.db |
+| `POST /api/db/store/exec` | Admin | DML/DDL against store.db (via write queue) |
 
 ### Write queue
 All mutations to a given database go through `queue.WriteQueue`. Never write to a
@@ -76,10 +83,10 @@ Uses `github.com/rs/zerolog`. Structured fields only — no `fmt.Printf` in hand
 
 ---
 
-## Next.js dashboard conventions (`dashboard/`)
+## Next.js admin UI conventions (`admin/`)
 
-- Next.js 15 with `--webpack` flag (no Turbopack — MDX + `turbopack.rules` schema conflict)
-- Dev: `next dev --webpack`
+- Next.js 15, standard webpack (no Turbopack)
+- Dev: `next dev`
 - Reads databases through the Go server's REST API at `NEXT_PUBLIC_API_URL`
 - Never opens SQLite files directly
 
@@ -93,7 +100,7 @@ Uses `github.com/rs/zerolog`. Structured fields only — no `fmt.Printf` in hand
 | `SESSION_SECRET` | Go server | Session signing |
 | `DATA_PATH` | Go server | Persistent volume path (default `/data`) |
 | `REDIS_URL` | Go server | Optional Redis cache |
-| `NEXT_PUBLIC_API_URL` | Dashboard | Go server base URL |
+| `NEXT_PUBLIC_API_URL` | Admin UI | Go server base URL |
 
 ---
 

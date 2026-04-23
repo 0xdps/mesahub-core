@@ -6,9 +6,9 @@ import (
 
 	"github.com/rs/zerolog/log"
 
-	"github.com/0xdps/sqlite-hub-template/config"
-	"github.com/0xdps/sqlite-hub-template/db"
-	"github.com/0xdps/sqlite-hub-template/files"
+	"github.com/0xdps/mesahub-core/config"
+	"github.com/0xdps/mesahub-core/db"
+	"github.com/0xdps/mesahub-core/files"
 )
 
 // MaintenanceHandler holds deps for maintenance routes.

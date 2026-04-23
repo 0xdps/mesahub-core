@@ -11,13 +11,13 @@ import (
 
 	"github.com/go-chi/chi/v5"
 
-	"github.com/0xdps/sqlite-hub-template/auth"
-	"github.com/0xdps/sqlite-hub-template/cache"
-	"github.com/0xdps/sqlite-hub-template/config"
-	"github.com/0xdps/sqlite-hub-template/db"
-	"github.com/0xdps/sqlite-hub-template/files"
-	"github.com/0xdps/sqlite-hub-template/queue"
-	"github.com/0xdps/sqlite-hub-template/telemetry"
+	"github.com/0xdps/mesahub-core/auth"
+	"github.com/0xdps/mesahub-core/cache"
+	"github.com/0xdps/mesahub-core/config"
+	"github.com/0xdps/mesahub-core/db"
+	"github.com/0xdps/mesahub-core/files"
+	"github.com/0xdps/mesahub-core/queue"
+	"github.com/0xdps/mesahub-core/telemetry"
 )
 
 // testEnv holds all shared dependencies for handler integration tests.

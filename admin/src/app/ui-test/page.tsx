@@ -1,7 +1,7 @@
 "use client";
 
 import { useState } from "react";
-import { DbViewer, SqlEditor, ResultsGrid } from "@sqlite-hub/ui";
+import { DbViewer, SqlEditor, ResultsGrid } from "@mesahub/ui";
 
 // Mock query function that returns sample data
 async function mockQueryFn(sql: string) {
@@ -37,7 +37,7 @@ export default function UiTestPage() {
 
   return (
     <div className="min-h-screen bg-neutral-950 text-white p-8">
-      <h1 className="text-2xl font-bold mb-2">@sqlite-hub/ui integration test</h1>
+      <h1 className="text-2xl font-bold mb-2">@mesahub/ui integration test</h1>
       <p className="text-neutral-400 text-sm mb-8">
         Testing published npm package components — v0.1.1
       </p>

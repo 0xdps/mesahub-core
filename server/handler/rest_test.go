@@ -15,13 +15,13 @@ import (
 
 	"github.com/go-chi/chi/v5"
 
-	"github.com/0xdps/sqlite-hub-template/auth"
-	"github.com/0xdps/sqlite-hub-template/cache"
-	"github.com/0xdps/sqlite-hub-template/config"
-	"github.com/0xdps/sqlite-hub-template/db"
-	"github.com/0xdps/sqlite-hub-template/handler"
-	"github.com/0xdps/sqlite-hub-template/queue"
-	"github.com/0xdps/sqlite-hub-template/telemetry"
+	"github.com/0xdps/mesahub-core/auth"
+	"github.com/0xdps/mesahub-core/cache"
+	"github.com/0xdps/mesahub-core/config"
+	"github.com/0xdps/mesahub-core/db"
+	"github.com/0xdps/mesahub-core/handler"
+	"github.com/0xdps/mesahub-core/queue"
+	"github.com/0xdps/mesahub-core/telemetry"
 
 	_ "github.com/mattn/go-sqlite3"
 )
@@ -82,7 +82,7 @@ func newRestEnv(t *testing.T) *restEnv {
 // users table with some rows. Returns the db name.
 func (e *restEnv) seedDB(t *testing.T, dbName string) {
 	t.Helper()
-	if _, err := e.registry.InsertDatabase(dbName, "test-owner", "admin", nil, nil, nil, ""); err != nil {
+	if _, err := e.registry.InsertDatabase("uuid-"+dbName, dbName, dbName, "test-owner", "admin", nil, nil); err != nil {
 		t.Fatalf("InsertDatabase: %v", err)
 	}
 	sqlDB, err := e.pool.Get(dbName)

@@ -71,6 +71,15 @@ type Client interface {
 
 	IncrRateLimit(ctx context.Context, key string, ttl time.Duration) (int64, error)
 
+	// SetJSON encodes v as JSON and stores it under key with the given TTL.
+	// Used by callers that need to cache arbitrary typed values (e.g. db/bucket lists).
+	SetJSON(ctx context.Context, key string, v any, ttl time.Duration) error
+	// GetJSON reads the cached value for key and unmarshals it into v.
+	// Returns (true, nil) on a hit, (false, nil) on a miss, (false, err) on error.
+	GetJSON(ctx context.Context, key string, v any) (bool, error)
+	// DeleteKey removes an arbitrary cache key. Used for targeted invalidation.
+	DeleteKey(ctx context.Context, key string) error
+
 	// Ping checks connectivity; always returns nil for NoopClient.
 	Ping(ctx context.Context) error
 	// Available reports whether a real Redis connection is backing this client.
@@ -102,8 +111,11 @@ func (n *noopClient) DeletePKCE(_ context.Context, _ string) error            { 
 func (n *noopClient) IncrRateLimit(_ context.Context, _ string, _ time.Duration) (int64, error) {
 	return 0, nil
 }
-func (n *noopClient) Ping(_ context.Context) error { return nil }
-func (n *noopClient) Available() bool              { return false }
+func (n *noopClient) SetJSON(_ context.Context, _ string, _ any, _ time.Duration) error { return nil }
+func (n *noopClient) GetJSON(_ context.Context, _ string, _ any) (bool, error)          { return false, nil }
+func (n *noopClient) DeleteKey(_ context.Context, _ string) error                       { return nil }
+func (n *noopClient) Ping(_ context.Context) error                                      { return nil }
+func (n *noopClient) Available() bool                                                   { return false }
 
 // ── RedisClient ──────────────────────────────────────────────────────────────
 
@@ -222,6 +234,32 @@ func (r *redisClient) IncrRateLimit(ctx context.Context, key string, ttl time.Du
 		return 0, err
 	}
 	return incr.Val(), nil
+}
+
+func (r *redisClient) SetJSON(ctx context.Context, key string, v any, ttl time.Duration) error {
+	b, err := json.Marshal(v)
+	if err != nil {
+		return err
+	}
+	return r.rdb.Set(ctx, key, b, ttl).Err()
+}
+
+func (r *redisClient) GetJSON(ctx context.Context, key string, v any) (bool, error) {
+	b, err := r.rdb.Get(ctx, key).Bytes()
+	if err == redis.Nil {
+		return false, nil
+	}
+	if err != nil {
+		return false, err
+	}
+	if err := json.Unmarshal(b, v); err != nil {
+		return false, err
+	}
+	return true, nil
+}
+
+func (r *redisClient) DeleteKey(ctx context.Context, key string) error {
+	return r.rdb.Del(ctx, key).Err()
 }
 
 // ── Factory ───────────────────────────────────────────────────────────────────

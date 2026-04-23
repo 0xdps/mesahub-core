@@ -29,7 +29,7 @@ export interface MetricsData {
   volume_used_percent: number;
 }
 
-const SYSTEM_DBS = new Set(["store"]);
+const SYSTEM_DBS = new Set(["store", "accounts"]);
 
 export default async function DashboardPage() {
   const [dbsRes, metricsRes, bucketsRes] = await Promise.all([

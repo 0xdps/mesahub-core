@@ -21,7 +21,7 @@ import (
 
 	"github.com/google/uuid"
 
-	"github.com/0xdps/sqlite-hub-template/config"
+	"github.com/0xdps/mesahub-core/config"
 )
 
 // ── limit defaults ────────────────────────────────────────────────────────────

@@ -18,8 +18,8 @@ import (
 	"github.com/go-chi/chi/v5"
 	_ "github.com/mattn/go-sqlite3"
 
-	"github.com/0xdps/sqlite-hub-template/config"
-	"github.com/0xdps/sqlite-hub-template/sysutil"
+	"github.com/0xdps/mesahub-core/config"
+	"github.com/0xdps/mesahub-core/sysutil"
 )
 
 // systemDBNames is the ordered list of recognised system database names.

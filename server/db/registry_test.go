@@ -1,11 +1,12 @@
 package db_test
 
 import (
+	"fmt"
 	"os"
 	"path/filepath"
 	"testing"
 
-	"github.com/0xdps/sqlite-hub-template/db"
+	"github.com/0xdps/mesahub-core/db"
 )
 
 // openTestRegistry opens a fresh registry in t.TempDir() so each test is isolated.
@@ -26,15 +27,21 @@ func TestInsertAndGetDatabase(t *testing.T) {
 	reg := openTestRegistry(t)
 
 	desc := "A test db"
-	rec, err := reg.InsertDatabase("mydb", "alice", "admin", nil, &desc, nil, "")
+	rec, err := reg.InsertDatabase("uuid-1", "My DB", "mydb", "alice", "admin", nil, &desc)
 	if err != nil {
 		t.Fatalf("InsertDatabase: %v", err)
 	}
 	if rec == nil {
 		t.Fatal("expected record, got nil")
 	}
-	if rec.Name != "mydb" {
-		t.Errorf("Name = %q; want %q", rec.Name, "mydb")
+	if rec.Name != "My DB" {
+		t.Errorf("Name = %q; want %q", rec.Name, "My DB")
+	}
+	if rec.Slug != "mydb" {
+		t.Errorf("Slug = %q; want %q", rec.Slug, "mydb")
+	}
+	if rec.ID != "uuid-1" {
+		t.Errorf("ID = %q; want uuid-1", rec.ID)
 	}
 	if rec.Owner != "alice" {
 		t.Errorf("Owner = %q; want %q", rec.Owner, "alice")
@@ -58,9 +65,10 @@ func TestGetDatabaseNotFound(t *testing.T) {
 func TestListDatabases(t *testing.T) {
 	reg := openTestRegistry(t)
 
-	for _, name := range []string{"db1", "db2", "db3"} {
-		if _, err := reg.InsertDatabase(name, "bob", "admin", nil, nil, nil, ""); err != nil {
-			t.Fatalf("InsertDatabase(%s): %v", name, err)
+	for i, slug := range []string{"db1", "db2", "db3"} {
+		id := fmt.Sprintf("uuid-%d", i)
+		if _, err := reg.InsertDatabase(id, slug, slug, "bob", "admin", nil, nil); err != nil {
+			t.Fatalf("InsertDatabase(%s): %v", slug, err)
 		}
 	}
 
@@ -75,7 +83,7 @@ func TestListDatabases(t *testing.T) {
 
 func TestSetDatabaseStatus(t *testing.T) {
 	reg := openTestRegistry(t)
-	if _, err := reg.InsertDatabase("statusdb", "carol", "admin", nil, nil, nil, ""); err != nil {
+	if _, err := reg.InsertDatabase("uuid-s", "Status DB", "statusdb", "carol", "admin", nil, nil); err != nil {
 		t.Fatal(err)
 	}
 	if err := reg.SetDatabaseStatus("statusdb", "inactive"); err != nil {
@@ -109,7 +117,7 @@ func TestSoftDeleteAndRestore(t *testing.T) {
 	pool := db.NewPool(dir)
 	t.Cleanup(func() { pool.Close() })
 
-	if _, err := reg.InsertDatabase("softdb", "eve", "admin", nil, nil, nil, ""); err != nil {
+	if _, err := reg.InsertDatabase("uuid-soft", "Soft DB", "softdb", "eve", "admin", nil, nil); err != nil {
 		t.Fatal(err)
 	}
 
@@ -123,12 +131,12 @@ func TestSoftDeleteAndRestore(t *testing.T) {
 		t.Fatal(err)
 	}
 	for _, r := range all {
-		if r.Name == "softdb" {
+		if r.Slug == "softdb" {
 			t.Fatal("softdb still appears in ListDatabases after delete")
 		}
 	}
 
-	// Find the deleted record so we know its renamed key.
+	// Find the deleted record so we know its renamed slug.
 	deleted, err := reg.ListDeletedDatabases()
 	if err != nil {
 		t.Fatal(err)
@@ -136,10 +144,10 @@ func TestSoftDeleteAndRestore(t *testing.T) {
 	if len(deleted) != 1 {
 		t.Fatalf("expected 1 deleted db, got %d", len(deleted))
 	}
-	deletedName := deleted[0].Name
+	deletedSlug := deleted[0].Slug
 
 	// Restore it.
-	if _, err := reg.RestoreDatabase(pool, deletedName); err != nil {
+	if _, err := reg.RestoreDatabase(pool, deletedSlug); err != nil {
 		t.Fatalf("RestoreDatabase: %v", err)
 	}
 	rec, err := reg.GetDatabase("softdb")
@@ -164,7 +172,7 @@ func TestHardDeleteDatabase(t *testing.T) {
 	}
 	t.Cleanup(func() { _ = reg.Close() })
 
-	if _, err := reg.InsertDatabase("harddb", "frank", "admin", nil, nil, nil, ""); err != nil {
+	if _, err := reg.InsertDatabase("uuid-hard", "Hard DB", "harddb", "frank", "admin", nil, nil); err != nil {
 		t.Fatal(err)
 	}
 
@@ -187,12 +195,12 @@ func TestHardDeleteDatabase(t *testing.T) {
 	if len(deleted) == 0 {
 		t.Fatal("no deleted databases found")
 	}
-	deletedName := deleted[0].Name
+	deletedSlug := deleted[0].Slug
 
-	if err := reg.HardDeleteDatabase(deletedName); err != nil {
+	if err := reg.HardDeleteDatabase(deletedSlug); err != nil {
 		t.Fatalf("HardDeleteDatabase: %v", err)
 	}
-	rec, err := reg.GetDatabase(deletedName)
+	rec, err := reg.GetDatabase(deletedSlug)
 	if err != nil {
 		t.Fatal(err)
 	}
