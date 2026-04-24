@@ -6,6 +6,7 @@ import (
 	"net/http"
 	"os"
 	"os/signal"
+	"strings"
 	"syscall"
 	"time"
 
@@ -107,12 +108,12 @@ func main() {
 	r.Use(middleware.StripInternalHeaders)
 	r.Use(middleware.Logger)
 	r.Use(chimw.Recoverer)
-	// Cap request bodies at 10 MB for all non-upload routes. Upload handlers
-	// enforce their own limit via io.LimitReader; this guards JSON routes against
-	// unbounded body reads.
+	// Cap request bodies at 10 MB for JSON routes. Upload routes (/import and
+	// /files) stream to disk and must not be limited here — they apply their own
+	// limits via io.LimitReader inside the handler.
 	r.Use(func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
-			if req.Body != nil {
+			if req.Body != nil && !isUploadPath(req.URL.Path) {
 				req.Body = http.MaxBytesReader(w, req.Body, 10<<20)
 			}
 			next.ServeHTTP(w, req)
@@ -130,9 +131,10 @@ func main() {
 	tokensH := handler.NewTokensHandler(cfg, registry, cacheClient)
 	metricsH := handler.NewMetricsHandler(cfg, registry, fileStorage, wq, tel)
 	maintenanceH := handler.NewMaintenanceHandler(cfg, registry, fileStorage)
-	systemH := handler.NewSystemHandler(cfg)
+	systemH := handler.NewSystemHandler(cfg, wq)
 	authH := auth.NewHandler(cfg, cacheClient)
 	apiKeysH := handler.NewAPIKeysHandler(registry)
+	importExportH := handler.NewImportExportHandler(cfg, pool, wq, registry, cacheClient)
 	bucketAdminH := handler.NewBucketAdminHandler(cfg, registry, fileStorage)
 
 	// Health + version — no auth required
@@ -161,9 +163,12 @@ func main() {
 		r.Delete("/api/db/{name}", dbH.DeleteDB)
 		r.Get("/api/metrics", metricsH.Metrics)
 		r.Post("/api/maintenance/cleanup", maintenanceH.Cleanup)
-		// System / internal databases — read-only browse access.
+		// System / internal databases — browse + optional write access.
 		r.Get("/api/system/dbs", systemH.ListSystemDBs)
 		r.Post("/api/system/db/{name}/query", systemH.QuerySystemDB)
+		if cfg.EnableSystemDBWrite {
+			r.Post("/api/system/db/{name}/exec", systemH.ExecSystemDB)
+		}
 		// Admin-managed API keys (shk_ prefix).
 		r.Post("/api/apikeys", apiKeysH.CreateAPIKey)
 		r.Get("/api/apikeys", apiKeysH.ListAPIKeys)
@@ -183,6 +188,10 @@ func main() {
 	// ── Per-DB data endpoints (auth handled inside each handler) ──────────────
 	r.Post("/api/db/{name}/query", queryH.Query)
 	r.Post("/api/db/{name}/exec", execH.Exec)
+	// Import / export — registered separately from the JSON routes so the
+	// global 10 MB body limit does not apply (isUploadPath returns true for these).
+	r.Post("/api/db/{name}/import", importExportH.Import)
+	r.Post("/api/db/{name}/export", importExportH.Export)
 	// Auto-REST layer — PostgREST-style CRUD for any table.
 	r.Get("/api/db/{name}/rest/{table}", restH.Get)
 	r.Post("/api/db/{name}/rest/{table}", restH.Post)
@@ -223,12 +232,15 @@ func main() {
 	}))
 
 	// ── Server ────────────────────────────────────────────────────────────────
+	// ReadTimeout and WriteTimeout are intentionally generous to accommodate
+	// large SQLite import uploads (up to 100 MB) and export downloads.
+	// The ReadHeaderTimeout is kept short to guard against slowloris attacks.
 	srv := &http.Server{
 		Addr:              fmt.Sprintf(":%d", cfg.Port),
 		Handler:           r,
-		ReadHeaderTimeout: 10 * time.Second, // guards against slowloris header attacks
-		ReadTimeout:       30 * time.Second,
-		WriteTimeout:      60 * time.Second,
+		ReadHeaderTimeout: 10 * time.Second,
+		ReadTimeout:       300 * time.Second, // large file uploads
+		WriteTimeout:      300 * time.Second, // large file exports
 		IdleTimeout:       120 * time.Second,
 	}
 
@@ -251,4 +263,12 @@ func main() {
 		log.Error().Err(err).Msg("shutdown error")
 	}
 	log.Info().Msg("stopped")
+}
+
+// isUploadPath returns true for routes that stream file bodies to disk and
+// must not have the global 10 MB MaxBytesReader applied.
+func isUploadPath(path string) bool {
+	return strings.HasSuffix(path, "/import") ||
+		strings.HasSuffix(path, "/files") ||
+		strings.Contains(path, "/files/")
 }

@@ -30,6 +30,11 @@ type Config struct {
 	EnableFileProxyDelivery bool
 	EnableFiles             bool
 	LogLevel                string
+
+	// EnableSystemDBWrite allows admin users to execute write statements
+	// against system databases (store.db) via POST /api/system/db/{name}/exec.
+	// Disabled by default — set ENABLE_SYSTEM_DB_WRITE=true to enable.
+	EnableSystemDBWrite bool
 }
 
 func Load() (*Config, error) {
@@ -48,6 +53,7 @@ func Load() (*Config, error) {
 		EnableFileProxyDelivery: strEnv("ENABLE_FILE_PROXY_DELIVERY", "true") != "false",
 		EnableFiles:             strEnv("ENABLE_FILE_STORAGE", "false") == "true",
 		LogLevel:                strEnv("LOG_LEVEL", "info"),
+		EnableSystemDBWrite:     strEnv("ENABLE_SYSTEM_DB_WRITE", "false") == "true",
 	}
 
 	if cfg.AdminToken == "" {

@@ -10,11 +10,16 @@ import (
 )
 
 // Logger returns a chi-compatible zerolog request-logging middleware.
+// Health check requests to /api/health are silently skipped to avoid
+// polluting the console with noise from Docker / load-balancer probes.
 func Logger(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		start := time.Now()
 		ww := middleware.NewWrapResponseWriter(w, r.ProtoMajor)
 		next.ServeHTTP(ww, r)
+		if r.URL.Path == "/api/health" {
+			return
+		}
 		log.Info().
 			Str("method", r.Method).
 			Str("path", r.URL.Path).

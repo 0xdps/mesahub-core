@@ -1,10 +1,12 @@
-// Package handler — system.go exposes read-only access to internal system
-// databases (store.db) via admin-only HTTP endpoints.
+// Package handler — system.go exposes access to internal system databases
+// (store.db) via admin-only HTTP endpoints.
 //
 // Routes (all require RequireAdmin middleware):
 //
-//	GET  /api/system/dbs           — list system databases with sizes
-//	POST /api/system/db/{name}/query — run a read-only SELECT against a system db
+//	GET  /api/system/dbs               — list system databases with sizes
+//	POST /api/system/db/{name}/query   — run a read-only SELECT against a system db
+//	POST /api/system/db/{name}/exec    — run a write statement against a system db
+//	                                     (only when ENABLE_SYSTEM_DB_WRITE=true)
 package handler
 
 import (
@@ -19,6 +21,7 @@ import (
 	_ "github.com/mattn/go-sqlite3"
 
 	"github.com/0xdps/mesahub-core/config"
+	"github.com/0xdps/mesahub-core/queue"
 	"github.com/0xdps/mesahub-core/sysutil"
 )
 
@@ -42,12 +45,13 @@ var onlySelectPattern = regexp.MustCompile(
 
 // SystemHandler exposes system / internal databases to admin users.
 type SystemHandler struct {
-	cfg *config.Config
+	cfg   *config.Config
+	queue *queue.Queue
 }
 
 // NewSystemHandler creates a SystemHandler.
-func NewSystemHandler(cfg *config.Config) *SystemHandler {
-	return &SystemHandler{cfg: cfg}
+func NewSystemHandler(cfg *config.Config, q *queue.Queue) *SystemHandler {
+	return &SystemHandler{cfg: cfg, queue: q}
 }
 
 // systemDBPath returns the filesystem path for a named system database.
@@ -161,6 +165,95 @@ func (h *SystemHandler) QuerySystemDB(w http.ResponseWriter, r *http.Request) {
 			"rowsAffected":    0,
 			"rowsRead":        rowsRead,
 			"rowsWritten":     nil,
+			"queryDurationMs": elapsed,
+		},
+	})
+}
+
+// dangerousDDLPattern matches statements that could corrupt a system database
+// schema (DROP TABLE, ALTER TABLE, DROP INDEX, DROP TRIGGER, DROP VIEW).
+// These are blocked even when write access is enabled.
+var dangerousDDLPattern = regexp.MustCompile(
+	`(?i)^\s*(DROP\s+(TABLE|INDEX|TRIGGER|VIEW)|ALTER\s+TABLE)`)
+
+// ExecSystemDB handles POST /api/system/db/{name}/exec.
+// Executes a write statement against the named system database.
+// Only available when ENABLE_SYSTEM_DB_WRITE=true; DDL that drops or alters
+// schema objects is always blocked.
+func (h *SystemHandler) ExecSystemDB(w http.ResponseWriter, r *http.Request) {
+	if !h.cfg.EnableSystemDBWrite {
+		ErrorJSON(w, http.StatusForbidden,
+			"system database write access is disabled; set ENABLE_SYSTEM_DB_WRITE=true to enable")
+		return
+	}
+
+	name := chi.URLParam(r, "name")
+
+	allowed := false
+	for _, n := range systemDBNames {
+		if n == name {
+			allowed = true
+			break
+		}
+	}
+	if !allowed {
+		ErrorJSON(w, http.StatusNotFound, "unknown system database")
+		return
+	}
+
+	if !h.systemDBExists(name) {
+		ErrorJSON(w, http.StatusNotFound, "system database not available")
+		return
+	}
+
+	var body struct {
+		SQL      string `json:"sql"`
+		Bindings []any  `json:"bindings"`
+	}
+	if !decodeJSON(w, r, &body) {
+		return
+	}
+	if body.SQL == "" {
+		ErrorJSON(w, http.StatusBadRequest, "sql is required")
+		return
+	}
+	if dangerousDDLPattern.MatchString(body.SQL) {
+		ErrorJSON(w, http.StatusForbidden,
+			"DROP and ALTER TABLE statements are not permitted on system databases")
+		return
+	}
+
+	dbPath := h.systemDBPath(name)
+
+	var rowsAffected int64
+	var elapsed int64
+
+	err := h.queue.Enqueue(r.Context(), "system:"+name, func() error {
+		sqlDB, err := sql.Open("sqlite3", "file:"+dbPath+"?_journal_mode=WAL&_busy_timeout=5000&_foreign_keys=on")
+		if err != nil {
+			return err
+		}
+		defer sqlDB.Close()
+
+		start := time.Now()
+		res, err := sqlDB.ExecContext(r.Context(), body.SQL, anySliceToDriverValues(body.Bindings)...)
+		elapsed = time.Since(start).Milliseconds()
+		if err != nil {
+			return err
+		}
+		rowsAffected, _ = res.RowsAffected()
+		return nil
+	})
+	if err != nil {
+		ErrorJSON(w, http.StatusBadRequest, err.Error())
+		return
+	}
+
+	writeJSON(w, http.StatusOK, map[string]any{
+		"stat": map[string]any{
+			"rowsAffected":    rowsAffected,
+			"rowsRead":        nil,
+			"rowsWritten":     rowsAffected,
 			"queryDurationMs": elapsed,
 		},
 	})
